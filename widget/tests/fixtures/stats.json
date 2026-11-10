@@ -1,0 +1,11 @@
+{
+  "today": "2026-11-10",
+  "days": {
+    "2026-10-19": {"in": 10, "out": 100, "cr": 1000, "cw": 0, "sessions": 1},
+    "2026-11-08": {"in": 20, "out": 200, "cr": 2000, "cw": 0, "sessions": 2},
+    "2026-11-09": {"in": 30, "out": 300, "cr": 3000, "cw": 0, "sessions": 3},
+    "2026-11-10": {"in": 40, "out": 400, "cr": 4000, "cw": 0, "sessions": 4}
+  },
+  "models": [["claude-opus-5-5", 1000]],
+  "envs": [{"path": "/Users/me/Documents/proj", "last": "2026-11-10T19:27:28.500Z", "name": ["proj"], "words": ["x"]}]
+}
