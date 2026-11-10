@@ -45,7 +45,12 @@ struct WidgetMenu: ViewModifier {
             }
             Button("Open Claude Code") { NSWorkspace.shared.open(openClaudeURL) }
             Divider()
-            Button("Reset widget position") { AppDelegate.shared?.resetPositions() }
+            if WidgetLock.isLocked {
+                Button("Unlock to move") { WidgetLock.isLocked = false }
+            } else {
+                Button("Lock in place") { WidgetLock.isLocked = true }
+                Button("Reset widget position") { AppDelegate.shared?.resetPositions() }
+            }
             Button("Quit Claude Widgets") { NSApp.terminate(nil) }
         }
     }

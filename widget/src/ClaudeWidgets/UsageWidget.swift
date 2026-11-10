@@ -89,13 +89,14 @@ struct HeroCard: View {
                     .offset(y: 100)
 
                 MiniStats(items: [
+                    ("Fable", fmt(s.fable)),
                     ("Output", fmt(s.output)),
                     ("Sessions", "\(s.sessions)"),
-                    ("Active days", "\(s.activeDays)"),
+                    ("Days", "\(s.activeDays)"),
                     ("Streak", "\(s.streak)d"),
                 ])
-                .frame(width: w - 40)
-                .offset(x: 20, y: 124)
+                .frame(width: w - 32)
+                .offset(x: 16, y: 124)
             }
         }
     }
@@ -146,16 +147,22 @@ struct MiniStats: View {
     var body: some View {
         HStack(spacing: 0) {
             ForEach(Array(items.enumerated()), id: \.offset) { i, item in
+                // The first item (Fable) sits on a soft highlight; the rest are a little smaller.
+                let lead = i == 0
                 HStack(spacing: 0) {
-                    if i > 0 {
-                        Rectangle().fill(.white.opacity(0.25)).frame(width: 1, height: 34).padding(.trailing, 8)
+                    if i > 1 {
+                        Rectangle().fill(.white.opacity(0.25)).frame(width: 1, height: 30).padding(.trailing, 6)
                     }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(item.0).font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
-                        Text(item.1).font(.system(size: 18, weight: .bold)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.0).font(.system(size: 10, weight: lead ? .bold : .medium)).foregroundStyle(.white.opacity(lead ? 0.95 : 0.7)).lineLimit(1)
+                        Text(item.1).font(.system(size: lead ? 16 : 14, weight: .bold)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
                     }
+                    .padding(.horizontal, lead ? 6 : 0)
+                    .padding(.vertical, lead ? 4 : 0)
+                    .background(lead ? RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.white.opacity(0.16)) : nil)
                     Spacer(minLength: 0)
                 }
+                .padding(.trailing, lead ? 6 : 0)
                 .frame(maxWidth: .infinity)
             }
         }
@@ -179,8 +186,8 @@ struct RingsCard: View {
 
 struct RingView: View {
     let ring: RingValue
-    private let r: CGFloat = 36
-    private let line: CGFloat = 9
+    private let r: CGFloat = 28
+    private let line: CGFloat = 7
 
     var body: some View {
         VStack(spacing: 0) {
@@ -189,21 +196,23 @@ struct RingView: View {
                 if let pct = ring.percent, pct > 0 {
                     Circle()
                         .trim(from: 0, to: CGFloat(min(100, pct) / 100))
-                        .stroke(Theme.color(for: severity(pct)), style: StrokeStyle(lineWidth: line, lineCap: .round))
+                        .stroke(Theme.color(for: ring.plain ? .normal : severity(pct)), style: StrokeStyle(lineWidth: line, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                         .animation(.easeOut(duration: 0.5), value: pct)
                 }
                 Text(ring.percent.map { "\(Int($0.rounded()))%" } ?? "—")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Theme.t1)
             }
             .frame(width: r * 2, height: r * 2)
             Text(ring.label)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.t1)
-                .padding(.top, 10)
+                .lineLimit(1)
+                .padding(.top, 8)
             Text(ring.sub)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 10, weight: .medium))
+                .minimumScaleFactor(0.8)
                 .foregroundStyle(Theme.t2)
                 .lineLimit(1)
                 .padding(.top, 3)

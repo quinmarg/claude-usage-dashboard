@@ -52,7 +52,7 @@ final class PanelHandle {
 
     /// Moves the widget with the mouse (call from a drag gesture). Runs until the mouse is released.
     func beginDrag() {
-        guard let panel, let event = NSApp.currentEvent, event.type == .leftMouseDragged || event.type == .leftMouseDown else { return }
+        guard !WidgetLock.isLocked, let panel, let event = NSApp.currentEvent, event.type == .leftMouseDragged || event.type == .leftMouseDown else { return }
         panel.performDrag(with: event)
     }
 
@@ -63,6 +63,15 @@ final class PanelHandle {
 
     func resignFocus() {
         panel?.makeFirstResponder(nil)
+    }
+}
+
+/// Locked (the default): the widget stays where it is. Unlock from the right-click menu to move it.
+enum WidgetLock {
+    private static let key = "ClaudeWidgets.locked"
+    static var isLocked: Bool {
+        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 }
 

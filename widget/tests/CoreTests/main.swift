@@ -101,17 +101,32 @@ test("rings read limits.json and the latest chat's context") {
     ], sessionId: "a", updatedAt: ms(now))
     let chats = [chat("a", busy: false, since: 100, ctx: 10), chat("b", busy: true, since: 50, ctx: 41, tokens: 405_000)]
     let r = rings(limits: lim, chats: chats, now: now)
-    try eq(r.map(\.label), ["5-hour", "Weekly", "Latest chat"])
+    try eq(r.map(\.label), ["5-hour", "Weekly", "Fable", "Latest chat"])
     try eq(r[0].percent, 20); try eq(r[0].sub, "resets 3h")
     try eq(r[1].percent, 43); try eq(r[1].sub, "resets 1d 18h")
-    try eq(r[2].percent, 41); try eq(r[2].sub, "405K tokens")
+    try eq(r[3].percent, 41); try eq(r[3].sub, "405K tokens")
 }
 test("a limit past its reset time shows 0%") {
     let lim = LimitsFile(limits: [Limit(kind: "five_hour", percentUsed: 95, resetsAt: now.addingTimeInterval(-60))], sessionId: nil, updatedAt: 0)
     let r = rings(limits: lim, chats: [], now: now)
     try eq(r[0].percent, 0); try eq(r[0].sub, "reset")
     try eq(r[1].percent, nil); try eq(r[1].sub, "after a reply")
-    try eq(r[2].sub, "no chat open")
+    try eq(r[3].sub, "no chat open")
+}
+test("Fable: totals from stats.json, share ring, or its own limit when reported") {
+    let s = Stats(today: "2026-11-10", days: [
+        "2026-11-09": DayStat(in: 0, out: 100, cr: 700, cw: 200, sessions: 1, fa: 250, fo: 50),
+        "2026-11-10": DayStat(in: 0, out: 100, cr: 900, cw: 0, sessions: 1),  // older file: no Fable fields
+    ])
+    let u = summarize(s)
+    try eq(u.fable, 250); try eq(u.fableOut, 50); try eq(u.fableShare, 12.5)
+    let share = rings(limits: nil, chats: [], now: now, summary: u)[2]
+    try eq(share.label, "Fable"); try eq(share.percent, 12.5); try eq(share.sub, "250 · share"); try ok(share.plain)
+    let lim = LimitsFile(limits: [Limit(kind: "seven_day_fable", percentUsed: 75, resetsAt: now.addingTimeInterval(3 * 3600))], sessionId: nil, updatedAt: 0)
+    let own = rings(limits: lim, chats: [], now: now, summary: u)[2]
+    try eq(own.percent, 75); try eq(own.sub, "resets 3h"); try ok(!own.plain)
+    let decoded = try JSONDecoder().decode(DayStat.self, from: Data(#"{"in":1,"out":2,"cr":3,"cw":4,"sessions":1,"fa":9,"fo":2}"#.utf8))
+    try eq(decoded.fa, 9)
 }
 test("latestChat prefers a busy chat, then the most recent work") {
     try eq(latestChat([chat("a", busy: false, since: 900, ctx: 5), chat("b", busy: true, since: 100, ctx: 7)])?.sessionId, "b")

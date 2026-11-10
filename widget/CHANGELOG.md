@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0 (2026-11-10)
+- Fable usage: a highlighted Fable slot first in the hero's mini stats, and a fourth Fable ring (its own plan limit if one is reported, else Fable's share of all tokens). Needs usage-grid 0.10's stats.json; older files show 0.
+- The other mini stats and rings are smaller so four rings and five stats fit.
+- Locked in place by default: dragging does nothing. Right-click → "Unlock to move", then "Lock in place" when done.
+
 ## 1.1.1 (2026-11-10)
 - Finds usage-grid's `stats.py` in Claude Code's plugin cache (any marketplace, newest install) instead of one fixed folder, so it works on any Mac.
 - Launch agent and bundle id are now `com.claude-widgets`. Uninstall falls back to `~/.Trash` where `/usr/bin/trash` is missing (macOS 14).

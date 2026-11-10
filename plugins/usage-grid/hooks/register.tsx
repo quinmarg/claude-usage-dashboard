@@ -140,7 +140,7 @@ export const untilText = (iso: string | null, nowMs: number): string => {
 
 export const summarize = (s: Stats) => {
   const keys = Object.keys(s.days).sort()
-  const sum = { all: 0, out: 0, sessions: 0 }
+  const sum = { all: 0, out: 0, sessions: 0, fable: 0, fableOut: 0 }
   let best = keys[0]
   let run = 0
   let longest = 0
@@ -149,6 +149,8 @@ export const summarize = (s: Stats) => {
     sum.all += total(d)
     sum.out += d.out
     sum.sessions += d.sessions
+    sum.fable += d.fa ?? 0
+    sum.fableOut += d.fo ?? 0
     if (d.out > s.days[best].out) best = k
     run = i > 0 && addDays(keys[i - 1], 1) === k ? run + 1 : 1
     longest = Math.max(longest, run)
@@ -179,7 +181,9 @@ export const levelFor = (s: Stats): ((k: string) => number) => {
 }
 
 const limitName = (kind: string): string =>
-  kind === 'five_hour' ? '5-hour' : kind === 'seven_day' ? 'Weekly' : kind.replace(/_/g, ' ')
+  kind === 'five_hour' ? '5-hour' : kind === 'seven_day' ? 'Weekly'
+    : kind.includes('fable') ? (kind.startsWith('five') ? '5-hour Fable' : 'Weekly Fable')
+    : kind.replace(/_/g, ' ')
 
 /** Plain, rule-based tips from what the dashboard can see. At most four, most urgent first. */
 export const recommend = (s: Stats | null, l: Live | null): string[] => {
@@ -571,19 +575,21 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     out.push(`<path d="${line}" fill="none" stroke="#fff" stroke-opacity=".9" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`)
     out.push(`<circle cx="${pts[29][0].toFixed(1)}" cy="${pts[29][1].toFixed(1)}" r="3.5" fill="#fff"/>`)
     out.push(`<text x="${sx1}" y="${sy1 + 14}" fill="#fff" fill-opacity=".7" font-size="10" text-anchor="end">30 days</text>`)
-    // Four mini stats across the bottom.
+    // Five mini stats across the bottom; Fable gets the bright slot.
     const mini: [string, string][] = [
+      ['Fable', fmt(sum.fable)],
       ['Output', fmt(sum.out)],
       ['Sessions', String(sum.sessions)],
-      ['Active days', String(keys.length)],
+      ['Days', String(keys.length)],
       ['Streak', `${current}d`],
     ]
-    const mw = (CW - 40) / 4
+    const mw = (CW - 40) / mini.length
     mini.forEach(([label, value], i) => {
       const mx = P + 20 + mw * i
-      if (i > 0) out.push(`<line x1="${mx - 8}" y1="${y + 128}" x2="${mx - 8}" y2="${y + 162}" stroke="#fff" stroke-opacity=".25"/>`)
-      out.push(`<text x="${mx}" y="${y + 138}" fill="#fff" fill-opacity=".75" font-size="11" font-weight="500">${esc(label)}</text>`)
-      out.push(`<text x="${mx}" y="${y + 161}" fill="#fff" font-size="18" font-weight="700">${esc(value)}</text>`)
+      if (i > 0) out.push(`<line x1="${mx - 7}" y1="${y + 130}" x2="${mx - 7}" y2="${y + 160}" stroke="#fff" stroke-opacity=".25"/>`)
+      if (i === 0) out.push(`<rect x="${mx - 6}" y="${y + 122}" width="${mw - 6}" height="44" rx="10" fill="#fff" fill-opacity=".16"/>`)
+      out.push(`<text x="${mx}" y="${y + 138}" fill="#fff" fill-opacity="${i === 0 ? '.95' : '.7'}" font-size="10" font-weight="${i === 0 ? 700 : 500}">${esc(label)}</text>`)
+      out.push(`<text x="${mx}" y="${y + 158}" fill="#fff" font-size="${i === 0 ? 16 : 14}" font-weight="700">${esc(value)}</text>`)
     })
     y += HH + GAP
     if (mode === 'home') return assemble()
@@ -592,49 +598,56 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     const lim = (kind: string) => l?.limits.find(x => x.kind === kind) ?? null
     const five = lim('five_hour')
     const week = lim('seven_day')
-    const rings: { label: string; pct: number | null; sub: string }[] = [
+    // Fable: its own plan limit when the engine reports one, else its share of all tokens.
+    const fableLim = l?.limits.find(x => x.kind.includes('fable')) ?? null
+    const fableShare = sum.all > 0 ? (sum.fable / sum.all) * 100 : null
+    const rings: { label: string; pct: number | null; sub: string; plain?: boolean }[] = [
       { label: '5-hour', pct: five?.percentUsed ?? null, sub: five?.resetsAt ? `resets ${untilText(five.resetsAt, nowMs)}` : five ? 'limit' : 'after a reply' },
       { label: 'Weekly', pct: week?.percentUsed ?? null, sub: week?.resetsAt ? `resets ${untilText(week.resetsAt, nowMs)}` : week ? 'limit' : 'after a reply' },
+      fableLim
+        ? { label: 'Fable', pct: fableLim.percentUsed, sub: fableLim.resetsAt ? `resets ${untilText(fableLim.resetsAt, nowMs)}` : 'limit' }
+        : { label: 'Fable', pct: fableShare, sub: `${fmt(sum.fable)} · share`, plain: true },
       { label: 'This chat', pct: l?.ctxPercent ?? null, sub: l?.ctxTokens != null ? `${fmt(l.ctxTokens)} tokens` : 'context' },
     ]
-    const RH = 168
+    const RH = 146
     out.push(card(P, y, CW, RH))
-    const colW = CW / 3
-    const r = Math.min(36, colW / 2 - 16)
+    const colW = CW / rings.length
+    const r = Math.max(18, Math.min(29, colW / 2 - 14))
     const circ = 2 * Math.PI * r
     rings.forEach((ring, i) => {
       const cx = P + colW * (i + 0.5)
       const cy = y + 22 + r + 6
       const pct = Math.max(0, Math.min(100, ring.pct ?? 0))
-      const color = severity(ring.pct)
-      out.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" class="track" stroke-width="9"/>`)
+      const color = ring.plain ? null : severity(ring.pct)
+      out.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" class="track" stroke-width="7"/>`)
       if (pct > 0) {
         out.push(
-          `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" ${color ? `stroke="${color}"` : 'class="ringfg"'} stroke-width="9" stroke-linecap="round" stroke-dasharray="${((circ * pct) / 100).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 ${cx} ${cy})"/>`,
+          `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" ${color ? `stroke="${color}"` : 'class="ringfg"'} stroke-width="7" stroke-linecap="round" stroke-dasharray="${((circ * pct) / 100).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 ${cx} ${cy})"/>`,
         )
       }
-      out.push(T(cx, cy + 6, ring.pct == null ? '—' : `${Math.round(ring.pct)}%`, 't1', 17, 700, 'middle'))
-      out.push(T(cx, cy + r + 26, ring.label, 't1', 13, 600, 'middle'))
-      out.push(T(cx, cy + r + 43, ring.sub, 't2', 11, 500, 'middle'))
+      out.push(T(cx, cy + 5, ring.pct == null ? '—' : `${Math.round(ring.pct)}%`, 't1', 14, 700, 'middle'))
+      out.push(T(cx, cy + r + 22, ring.label, 't1', 12, 600, 'middle'))
+      out.push(T(cx, cy + r + 37, cut(ring.sub, Math.floor((colW - 8) / 5.6)), 't2', 10, 500, 'middle'))
     })
     y += RH + GAP
 
     // Today strip: output, sessions, streak.
-    const TH = 100
+    const TH = 88
     out.push(card(P, y, CW, TH))
     const delta = today && avgOut7 > 0 ? Math.round(((today.out - avgOut7) / avgOut7) * 100) : null
     const todayCols: [string, string, string][] = [
       ['Today', today ? fmt(today.out) : '0', delta == null ? 'output tokens' : `${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)}% vs 7-day avg`],
-      ['Sessions today', String(today?.sessions ?? 0), today ? `${fmt(total(today))} all tokens` : 'none yet'],
+      ['Fable today', fmt(today?.fa ?? 0), `${fmt(today?.fo ?? 0)} output`],
+      ['Sessions today', String(today?.sessions ?? 0), today ? `${fmt(total(today))} all` : 'none yet'],
       ['Streak', `${current} days`, `best ${longest} days`],
     ]
-    const tw = CW / 3
+    const tw = CW / todayCols.length
     todayCols.forEach(([label, value, sub], i) => {
       const tx = P + 18 + tw * i
       if (i > 0) out.push(`<line x1="${tx - 12}" y1="${y + 20}" x2="${tx - 12}" y2="${y + TH - 20}" class="sepl"/>`)
-      out.push(T(tx, y + 30, label, 't2', 12, 600))
-      out.push(T(tx, y + 62, value, 't1', wide ? 26 : 22, 700))
-      out.push(T(tx, y + 82, cut(sub, Math.floor((tw - 24) / 6)), i === 0 && delta != null ? 'accent' : 't2', 11, 500))
+      out.push(T(tx, y + 27, label, 't2', 11, 600))
+      out.push(T(tx, y + 54, value, 't1', wide ? 21 : 18, 700))
+      out.push(T(tx, y + 72, cut(sub, Math.floor((tw - 22) / 5.6)), i === 0 && delta != null ? 'accent' : 't2', 10, 500))
     })
     y += TH + GAP
 
@@ -1047,7 +1060,8 @@ export const register: Register = on => {
       // Nothing urgent: one slim line with a button that shows or hides the full dashboard.
       const isOpen = (await $.ui.panes()).some((pane: { id: string }) => pane.id === PANE)
       const five = l?.limits.find(x => x.kind === 'five_hour')
-      const facts = [s ? `${fmt(summarize(s).sum.all)} tokens` : '', five ? `5-hour ${Math.round(five.percentUsed)}%` : '', running === 1 ? '1 running' : '']
+      const sumNow = s ? summarize(s).sum : null
+      const facts = [sumNow ? `${fmt(sumNow.all)} tokens` : '', sumNow && sumNow.fable > 0 ? `Fable ${fmt(sumNow.fable)}` : '', five ? `5-hour ${Math.round(five.percentUsed)}%` : '', running === 1 ? '1 running' : '']
         .filter(Boolean)
         .join(' · ')
       return (
@@ -1315,6 +1329,7 @@ export const register: Register = on => {
       <Box flexDirection="column">
         {header}
         <Text bold color="#9fd0ff">{fmt(sum.all)} total tokens</Text>
+        {sum.fable > 0 && <Text color="#c9b8ff">Fable {fmt(sum.fable)} tokens · {fmt(sum.fableOut)} output</Text>}
         <Text dimColor>
           {fmt(sum.out)} output · {sum.sessions} sessions · {keys.length} active days
         </Text>

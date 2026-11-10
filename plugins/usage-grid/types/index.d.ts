@@ -1,4 +1,8 @@
-export type DayStat = { in: number; out: number; cr: number; cw: number; sessions: number }
+export type DayStat = {
+  in: number; out: number; cr: number; cw: number; sessions: number
+  /** Fable tokens that day: all (incl. cache) and output. Missing in caches from before 0.10. */
+  fa?: number; fo?: number
+}
 export type Env = { path: string; last: string; name?: string[]; words?: string[] }
 export type Stats = {
   today: string

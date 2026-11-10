@@ -39,7 +39,7 @@ def keywords(path, name):
     return name_words, [w for w, _ in words.most_common(60)]
 
 root = os.path.expanduser('~/.claude/projects')
-days = collections.defaultdict(lambda: {'in': 0, 'out': 0, 'cr': 0, 'cw': 0, 's': set()})
+days = collections.defaultdict(lambda: {'in': 0, 'out': 0, 'cr': 0, 'cw': 0, 'fa': 0, 'fo': 0, 's': set()})
 models = collections.Counter()
 seen = set()
 envs = {}
@@ -88,6 +88,10 @@ for f in glob.glob(root + '/**/*.jsonl', recursive=True):
             mod = m.get('model')
             if mod and not mod.startswith('<'):
                 models[mod] += u.get('output_tokens') or 0
+            # Fable has its own counter: all tokens (incl. cache) and output.
+            if isinstance(mod, str) and 'fable' in mod:
+                d['fa'] += sum(u.get(x) or 0 for x in ('input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'))
+                d['fo'] += u.get('output_tokens') or 0
 
 # A folder counts once: a subfolder a session moved into belongs to its project.
 cands = {c for c in envs if os.path.isdir(c) and 'scratch-workspaces' not in c and '/.' not in c and not c.startswith(('/tmp', '/private/'))}
@@ -114,7 +118,7 @@ ranked += sorted([x for x in usable if x[0] in general], key=lambda kv: kv[1], r
 
 out = {
     'today': datetime.date.today().isoformat(),
-    'days': {k: {'in': v['in'], 'out': v['out'], 'cr': v['cr'], 'cw': v['cw'], 'sessions': len(v['s'])}
+    'days': {k: {'in': v['in'], 'out': v['out'], 'cr': v['cr'], 'cw': v['cw'], 'sessions': len(v['s']), 'fa': v['fa'], 'fo': v['fo']}
              for k, v in sorted(days.items())},
     'models': models.most_common(6),
     # Recent project folders, newest first; app-made scratch folders and temp folders left out.

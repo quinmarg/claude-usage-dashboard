@@ -77,7 +77,7 @@ final class Store: ObservableObject {
         return summarize(stats, today: localDayKey(now))
     }
 
-    var ringValues: [RingValue] { rings(limits: limits, chats: chats, now: now) }
+    var ringValues: [RingValue] { rings(limits: limits, chats: chats, now: now, summary: summary) }
 
     var agents: AgentsSnapshot { agentsSnapshot(chats) }
 

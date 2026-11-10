@@ -7,9 +7,12 @@ public struct DayStat: Codable, Equatable, Sendable {
     public var cr: Int
     public var cw: Int
     public var sessions: Int
+    /// Fable tokens that day: all (incl. cache) and output. Missing in stats.json from before usage-grid 0.10.
+    public var fa: Int?
+    public var fo: Int?
 
-    public init(in i: Int, out: Int, cr: Int, cw: Int, sessions: Int) {
-        self.in = i; self.out = out; self.cr = cr; self.cw = cw; self.sessions = sessions
+    public init(in i: Int, out: Int, cr: Int, cw: Int, sessions: Int, fa: Int? = nil, fo: Int? = nil) {
+        self.in = i; self.out = out; self.cr = cr; self.cw = cw; self.sessions = sessions; self.fa = fa; self.fo = fo
     }
 
     /// Input + output + cache read + cache write.

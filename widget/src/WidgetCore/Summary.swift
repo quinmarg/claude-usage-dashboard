@@ -78,16 +78,22 @@ public struct UsageSummary: Equatable, Sendable {
     public var firstDay: String?
     /// All tokens per day for the 30 days ending today, oldest first.
     public var series30: [Int]
+    /// Fable tokens across every day: all (incl. cache) and output.
+    public var fable: Int = 0
+    public var fableOut: Int = 0
+    /// Fable's share of all tokens, 0...100; nil before any tokens.
+    public var fableShare: Double? { totalTokens > 0 ? Double(fable) / Double(totalTokens) * 100 : nil }
 }
 
 /// The same numbers as the dashboard's summarize(): sums across every day in stats.json.
 /// `today` is normally the Mac's local day, so the streak and sparkline stay right after midnight even if stats.json is old.
 public func summarize(_ s: Stats, today: String? = nil) -> UsageSummary {
     let keys = s.days.keys.sorted()
-    var total = 0, out = 0, sessions = 0
+    var total = 0, out = 0, sessions = 0, fable = 0, fableOut = 0
     for k in keys {
         let d = s.days[k]!
         total += d.total; out += d.out; sessions += d.sessions
+        fable += d.fa ?? 0; fableOut += d.fo ?? 0
     }
     let day = max(today ?? s.today, s.today)
     // Today may not have started yet: count back from today, or from yesterday.
@@ -98,7 +104,8 @@ public func summarize(_ s: Stats, today: String? = nil) -> UsageSummary {
         cursor = addDays(cursor, -1)
     }
     let series = (0..<30).map { i in s.days[addDays(day, i - 29)]?.total ?? 0 }
-    return UsageSummary(totalTokens: total, output: out, sessions: sessions, activeDays: keys.count, streak: streak, firstDay: keys.first, series30: series)
+    return UsageSummary(totalTokens: total, output: out, sessions: sessions, activeDays: keys.count, streak: streak, firstDay: keys.first, series30: series,
+                        fable: fable, fableOut: fableOut)
 }
 
 // MARK: - Rings
@@ -115,6 +122,8 @@ public struct RingValue: Equatable, Sendable {
     public var label: String
     public var percent: Double?
     public var sub: String
+    /// A share rather than a limit: always the accent color, never orange or red.
+    public var plain: Bool = false
 }
 
 /// A limit whose reset time has passed is back to 0%.
@@ -123,8 +132,9 @@ public func currentPercent(_ l: Limit, now: Date) -> Double {
     return max(0, min(100, l.percentUsed))
 }
 
-/// The three rings: 5-hour, weekly, and the latest chat's context.
-public func rings(limits: LimitsFile?, chats: [ChatWork], now: Date) -> [RingValue] {
+/// The four rings: 5-hour, weekly, Fable, and the latest chat's context.
+/// Fable shows its own plan limit when one is reported, else its share of all tokens.
+public func rings(limits: LimitsFile?, chats: [ChatWork], now: Date, summary: UsageSummary? = nil) -> [RingValue] {
     func ring(_ kind: String, _ label: String) -> RingValue {
         guard let l = limits?.limits.first(where: { $0.kind == kind }) else {
             return RingValue(label: label, percent: nil, sub: "after a reply")
@@ -141,7 +151,13 @@ public func rings(limits: LimitsFile?, chats: [ChatWork], now: Date) -> [RingVal
     } else {
         ctxRing = RingValue(label: "Latest chat", percent: nil, sub: chats.isEmpty ? "no chat open" : "context")
     }
-    return [ring("five_hour", "5-hour"), ring("seven_day", "Weekly"), ctxRing]
+    let fableRing: RingValue
+    if let kind = limits?.limits.first(where: { $0.kind.contains("fable") })?.kind {
+        fableRing = ring(kind, "Fable")
+    } else {
+        fableRing = RingValue(label: "Fable", percent: summary?.fableShare, sub: summary.map { "\(fmt($0.fable)) · share" } ?? "share", plain: true)
+    }
+    return [ring("five_hour", "5-hour"), ring("seven_day", "Weekly"), fableRing, ctxRing]
 }
 
 /// The chat to show context for: among chats that report context, a busy one that started work most recently,
