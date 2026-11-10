@@ -26,26 +26,9 @@ The mod works alone. The widget needs the mod, because it reads the files the mo
 - [Claude Code](https://claude.com/claude-code) 2.1.275 or later (the mod draws in the Claude desktop app, the terminal and editors)
 - `python3` (comes with the Xcode Command Line Tools)
 - For the widget: the Xcode Command Line Tools (`xcode-select --install`). Full Xcode is not needed.
-- `git` and the GitHub CLI `gh`, signed in (see below), because this repo is private.
+- `git`
 
-## 1. Sign in to GitHub (private repo only)
-Claude Code downloads the mod with git, and it never asks for a password. So give git your GitHub login once:
-
-```bash
-brew install gh
-```
-
-```bash
-gh auth login
-```
-
-```bash
-gh auth setup-git
-```
-
-You need an invite to this repo first, accepted at https://github.com/quinmarg/claude-usage-dashboard/invitations.
-
-## 2. Install the mod
+## 1. Install the mod
 In a **terminal** Claude Code session (run `claude` in Terminal), type:
 
 ```
@@ -64,7 +47,7 @@ In the desktop app (where `/plugin` doesn't run): click **+** next to the prompt
 
 Open a new chat: the dashboard card sits above the message box. The first scan of your logs takes a few seconds.
 
-## 3. Install the desktop widget
+## 2. Install the desktop widget
 ```bash
 git clone https://github.com/quinmarg/claude-usage-dashboard.git
 ```
