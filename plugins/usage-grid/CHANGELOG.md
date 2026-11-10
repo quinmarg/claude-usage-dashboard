@@ -1,5 +1,8 @@
 # Changelog (usage-grid)
 
+## 0.9.2
+- Environment menu: the ✓ has its own column, so it never sits on a long folder name; long names are shortened, and the current folder no longer also says "suggested".
+
 ## 0.9.1
 - Near-instant environment switching: after the direct move, the mod ends a marked turn after 250 ms and a `turn.step` hook answers it ("Moved.") with no model call.
 

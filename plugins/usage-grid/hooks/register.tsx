@@ -884,15 +884,24 @@ async function envMenu($: any, els: any) {
       )}
       <Box flexDirection="column" marginTop={1}>
         {envs.slice(0, 6).map(env => (
-          <Box key={env.path} flexDirection="row" alignItems="center" justifyContent="space-between" hover={{ backgroundColor: '#80808024' }}>
-            <Box flexDirection="row" alignItems="center" gap={1}>
+          <Box key={env.path} flexDirection="row" alignItems="center" gap={1} hover={{ backgroundColor: '#80808024' }}>
+            {/* The name side grows and shortens; the ✓ keeps its own fixed column at the right. */}
+            <Box flexDirection="row" alignItems="center" gap={1} flexGrow={1} flexShrink={1} overflow="hidden">
               <Svg source={LAPTOP} alt="folder" width={18} height={18} />
               <Button key={`env:${env.path}`} plain onPress={() => (env.path === cwd ? undefined : go(env.path))}>
-                {name(env.path)}
-                {env.path === switching ? <Text color="suggestion"> · switching…</Text> : env.path === suggested ? <Text color="suggestion"> · suggested</Text> : ''}
+                {cut(name(env.path), 24)}
+                {env.path === switching ? (
+                  <Text color="suggestion"> · switching…</Text>
+                ) : env.path === suggested && env.path !== cwd ? (
+                  <Text color="suggestion"> · suggested</Text>
+                ) : (
+                  ''
+                )}
               </Button>
             </Box>
-            {env.path === cwd ? <Text color="suggestion" bold>✓</Text> : <Text> </Text>}
+            <Box flexShrink={0} width={3} justifyContent="flex-end">
+              {env.path === cwd ? <Text color="suggestion" bold>✓</Text> : <Text> </Text>}
+            </Box>
           </Box>
         ))}
       </Box>
