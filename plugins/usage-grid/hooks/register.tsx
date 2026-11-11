@@ -667,7 +667,8 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     const items = m?.reminders ?? []
     const shown = items.slice(0, 4)
     const itemChars = Math.max(16, Math.floor((CW - 60) / (13 * 0.5)))
-    const itemLines = shown.map(t => wrap(t, itemChars).slice(0, 2))
+    // Two lines at most; a word too long for the card (a file path) is cut rather than run past the edge.
+    const itemLines = shown.map(t => wrap(t, itemChars).slice(0, 2).map(line => cut(line, itemChars + 2)))
     const [qText, qBy] = quoteFor(s?.today ?? toIso(new Date(nowMs - new Date(nowMs).getTimezoneOffset() * 60000)))
     const qLines = wrap(`“${qText}”`, Math.max(18, Math.floor((CW - 36) / (15 * 0.46))))
     const listH = shown.length ? itemLines.reduce((a, ls) => a + ls.length * 17 + 9, 0) + (items.length > 4 ? 18 : 0) : 26

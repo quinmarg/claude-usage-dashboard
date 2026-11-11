@@ -243,3 +243,9 @@ test('limits warn with a sign as well as a colour, like the desktop widget', () 
   expect(svg.includes('#C8452E')).toBe(true)
   expect(svg.includes('#E58A3A')).toBe(true)
 })
+
+test('a reminder with a long path stays inside the card', () => {
+  const svg = dashboardSvg(stats, live, 380, EMPTY_WORK, 'home', { wall: null, reminders: ['Install: double-click Documents/museum-screensaver/build/Museum.saver now'] }).svg
+  expect(svg.includes('Documents/museum-screensaver/build/Museum.saver')).toBe(false)
+  expect(svg.includes('…')).toBe(true)
+})
