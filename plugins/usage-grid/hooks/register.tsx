@@ -178,11 +178,16 @@ export const fitFont = (t: string, room: number, max: number): number =>
 
 /** Column widths for the hero's mini stats: each gets what its label and value need plus a gap,
  * then any spare width is shared evenly. If they can't all fit, widths scale down together. */
-export const miniWidths = (items: [string, string][], total: number): number[] => {
-  const need = items.map(([label, value], i) => Math.max(textWidth(value, i === 0 ? 16 : 14), textWidth(label, 10)) + (i === 0 ? 30 : 22))
+export const miniWidths = (items: [string, string][], total: number, leadSize = 16, restSize = 14): number[] =>
+  fitColumns(items.map(([label, value], i) => [textWidth(value, i === 0 ? leadSize : restSize), textWidth(label, 10)]), total, 16, [12])
+
+/** Column widths from each column's line widths: the widest line plus `pad` (plus any `extraPad[i]`),
+ * then spare width shared evenly; if they don't fit, all scale down together. Always sums to `total`. */
+export const fitColumns = (lines: number[][], total: number, pad: number, extraPad: number[] = []): number[] => {
+  const need = lines.map((ls, i) => Math.max(...ls) + pad + (extraPad[i] ?? 0))
   const sum = need.reduce((a, b) => a + b, 0)
   if (sum >= total) return need.map(n => (n * total) / sum)
-  const extra = (total - sum) / items.length
+  const extra = (total - sum) / lines.length
   return need.map(n => n + extra)
 }
 
@@ -602,16 +607,25 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       ['Streak', `${current}d`],
     ]
     // Each column is as wide as its text needs (SVG text can't shrink itself), then the spare room is shared out.
-    const widths = miniWidths(mini, CW - 40)
-    let mx = P + 20
+    // Labels and values are centered in their column, and the Fable highlight is centered on the same point,
+    // so it sits evenly around the text whatever the font measures.
+    const leadSize = wide ? 18 : 16
+    const restSize = wide ? 16 : 14
+    const widths = miniWidths(mini, CW - 24, leadSize, restSize)
+    let mx = P + 12
     mini.forEach(([label, value], i) => {
       const cw = widths[i]
       const lead = i === 0
-      const size = fitFont(value, cw - (lead ? 16 : 12), lead ? 16 : 14)
-      if (i > 1) out.push(`<line x1="${mx - 8}" y1="${y + 130}" x2="${mx - 8}" y2="${y + 160}" stroke="#fff" stroke-opacity=".25"/>`)
-      if (lead) out.push(`<rect x="${mx - 8}" y="${y + 122}" width="${cw - 4}" height="44" rx="10" fill="#fff" fill-opacity=".16"/>`)
-      out.push(`<text x="${mx}" y="${y + 138}" fill="#fff" fill-opacity="${lead ? '.95' : '.7'}" font-size="10" font-weight="${lead ? 700 : 500}">${esc(label)}</text>`)
-      out.push(`<text x="${mx}" y="${y + 158}" fill="#fff" font-size="${size}" font-weight="700">${esc(value)}</text>`)
+      const mid = mx + cw / 2
+      const size = fitFont(value, cw - (lead ? 20 : 12), lead ? leadSize : restSize)
+      if (i > 1) out.push(`<line x1="${mx.toFixed(1)}" y1="${y + 130}" x2="${mx.toFixed(1)}" y2="${y + 160}" stroke="#fff" stroke-opacity=".25"/>`)
+      if (lead) {
+        // As wide as the text plus even padding (never wider than the column), centered on the text.
+        const bw = Math.min(cw - 6, Math.max(textWidth(value, size), textWidth(label, 10)) + 28)
+        out.push(`<rect x="${(mid - bw / 2).toFixed(1)}" y="${y + 121}" width="${bw.toFixed(1)}" height="46" rx="12" fill="#fff" fill-opacity=".16"/>`)
+      }
+      out.push(`<text x="${mid.toFixed(1)}" y="${y + 138}" text-anchor="middle" fill="#fff" fill-opacity="${lead ? '.95' : '.7'}" font-size="10" font-weight="${lead ? 700 : 500}">${esc(label)}</text>`)
+      out.push(`<text x="${mid.toFixed(1)}" y="${y + 158}" text-anchor="middle" fill="#fff" font-size="${size}" font-weight="700">${esc(value)}</text>`)
       mx += cw
     })
     y += HH + GAP
@@ -659,18 +673,26 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     out.push(card(P, y, CW, TH))
     const delta = today && avgOut7 > 0 ? Math.round(((today.out - avgOut7) / avgOut7) * 100) : null
     const todayCols: [string, string, string][] = [
-      ['Today', today ? fmt(today.out) : '0', delta == null ? 'output tokens' : `${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)}% vs 7-day avg`],
+      ['Today', today ? fmt(today.out) : '0', delta == null ? 'output' : `${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)}% vs avg`],
       ['Fable today', fmt(today?.fa ?? 0), `${fmt(today?.fo ?? 0)} output`],
-      ['Sessions today', String(today?.sessions ?? 0), today ? `${fmt(total(today))} all` : 'none yet'],
-      ['Streak', `${current} days`, `best ${longest} days`],
+      ['Sessions', String(today?.sessions ?? 0), today ? `${fmt(total(today))} all` : 'none yet'],
+      ['Streak', `${current}d`, `best ${longest}d`],
     ]
-    const tw = CW / todayCols.length
+    // Same rule as the hero: each column as wide as its widest line needs, spare room shared out,
+    // values shrink only if they still don't fit, everything centered in its column.
+    const vSize = wide ? 21 : 18
+    const tws = fitColumns(todayCols.map(([label, value, sub]) => [
+      textWidth(value, vSize), textWidth(label, 11), textWidth(sub, 10),
+    ]), CW - 16, 14)
+    let tx = P + 8
     todayCols.forEach(([label, value, sub], i) => {
-      const tx = P + 18 + tw * i
-      if (i > 0) out.push(`<line x1="${tx - 12}" y1="${y + 20}" x2="${tx - 12}" y2="${y + TH - 20}" class="sepl"/>`)
-      out.push(T(tx, y + 27, label, 't2', 11, 600))
-      out.push(T(tx, y + 54, value, 't1', wide ? 21 : 18, 700))
-      out.push(T(tx, y + 72, cut(sub, Math.floor((tw - 22) / 5.6)), i === 0 && delta != null ? 'accent' : 't2', 10, 500))
+      const tw = tws[i]
+      const mid = tx + tw / 2
+      if (i > 0) out.push(`<line x1="${tx.toFixed(1)}" y1="${y + 20}" x2="${tx.toFixed(1)}" y2="${y + TH - 20}" class="sepl"/>`)
+      out.push(T(mid, y + 27, label, 't2', 11, 600, 'middle'))
+      out.push(T(mid, y + 54, value, 't1', fitFont(value, tw - 12, vSize), 700, 'middle'))
+      out.push(T(mid, y + 72, cut(sub, Math.floor((tw - 8) / 5.4)), i === 0 && delta != null ? 'accent' : 't2', 10, 500, 'middle'))
+      tx += tw
     })
     y += TH + GAP
 

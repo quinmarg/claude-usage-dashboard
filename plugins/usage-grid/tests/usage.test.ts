@@ -186,8 +186,8 @@ test('hero mini stats: every value fits its column, even long Fable totals', () 
     const w = miniWidths(items, total)
     expect(Math.round(w.reduce((a, b) => a + b, 0))).toBe(total)
     items.forEach(([, v], i) => {
-      const size = fitFont(v, w[i] - (i === 0 ? 16 : 12), i === 0 ? 16 : 14)
-      expect(textWidth(v, size)).toBeLessThanOrEqual(w[i] - (i === 0 ? 16 : 12) + 0.5)
+      const size = fitFont(v, w[i] - (i === 0 ? 20 : 12), i === 0 ? 16 : 14)
+      expect(textWidth(v, size)).toBeLessThanOrEqual(w[i] - (i === 0 ? 20 : 12) + 0.5)
     })
     expect(w[0]).toBeGreaterThan(w[3])  // the Fable column is wider than Days
   }

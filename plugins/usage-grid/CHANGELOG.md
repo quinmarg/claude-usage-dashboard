@@ -1,5 +1,9 @@
 # Changelog (usage-grid)
 
+## 0.10.2 (2026-11-10)
+- Hero mini stats and the Today strip are centered in their columns; the Fable highlight is sized to its text and centered on it at every width.
+- Today strip columns are sized to their text (short labels, "vs avg"), so nothing overlaps or gets cut off; numbers are a little bigger in wide panes.
+
 ## 0.10.1 (2026-11-10)
 - Hero mini stats: each column is sized to its text and values shrink to fit, so long totals like Fable's no longer run into Output.
 

@@ -7,7 +7,7 @@
       "name": "usage-grid",
       "source": "./plugins/usage-grid",
       "description": "Dashboard at the top of every new chat: environment switcher with folder suggestions, live work across all chats, total tokens, limits, activity grid and tips.",
-      "version": "0.10.1"
+      "version": "0.10.2"
     }
   ]
 }
