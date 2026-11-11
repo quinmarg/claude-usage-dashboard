@@ -1,5 +1,13 @@
 # Changelog (usage-grid)
 
+## 0.12.0 (2026-11-11)
+- Daily update in the bar above the message box for the first message and first reply of every chat: usage today vs yesterday with a weekly-limit outlook, open chats (working / idle and ready), reminders, the painting on the wall and the line of the day. Buttons: Open full dashboard, Hide for this chat. Text version in the terminal.
+- Fix: the old new-chat card never showed in the desktop app (a chat only starts once the first message is sent); the daily update shows while `turns <= 1`.
+- Data loads at the start of `session.start` instead of after every other mod's start-up, so numbers appear within seconds.
+- The bar passes on to later mods' bars (stacked), instead of hiding them.
+- Ring warning text uses the widget's colours in dark mode (#F7B36A, #F29580).
+- Measured: no change in tokens per chat (context identical with the mod on and off); answer time unchanged.
+
 ## 0.11.0 (2026-11-11)
 - Museum + glass look: translucent cards with a gold hairline and a top highlight, Baskerville for the total, the date and card titles, small-caps labels, gold `#C9A45C` as the only accent (rings, sparkline, heat map, bars, models, badges), parchment `#EFE6D2` text in dark mode. No more iOS blue.
 - New cards: **On your wall** (the desktop painting as a museum label) and **For you today** (reminders from the Obsidian note "Reminders from Claude" + a classical line of the day). `/remind` lists, adds and ticks reminders. Read by the new `hooks/museum.py`.

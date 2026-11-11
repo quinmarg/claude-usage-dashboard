@@ -1,6 +1,6 @@
 {
   "name": "usage-grid",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Dashboard at the top of every new chat: themed environment switcher that suggests the right folder for your task (switch any time, even mid-chat), live work named after the chat, total tokens, limits, activity grid and tips.",
   "types": "./types/index.d.ts"
 }

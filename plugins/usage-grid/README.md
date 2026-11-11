@@ -46,3 +46,10 @@ Where the dashboard was placed in each chat is logged to `~/.claude/usage-grid.l
 - Limits warn with a sign as well as a colour: ▲ from 70% (amber), ‼ from 90% (deep red), the same as the desktop widget.
 - Roll back: git tag `usage-grid-v0.10.2` has the previous (iOS-style) version.
 
+## Daily update at the start of each chat (0.12.0)
+- The bar above the message box shows a short **daily update** for your first message and Claude's first reply in every chat: **Usage** (today's output vs yesterday, the weekly limit and whether it lasts at this pace), **Chats** (other open chats on this Mac: which are working, which are idle and ready for you), **For you** (open reminders), **Wall** (the painting on your desktop) and the line of the day. *Open full dashboard* expands it; *Hide for this chat* folds it to the slim line.
+- Why "first message", not "empty chat": the desktop app only starts a chat's process when the first message is sent, so a chat with no messages is never seen there.
+- It is drawn for you only: Claude never reads it, so it adds **no tokens**. The bar draws in under 10 ms; the numbers load straight away at chat start (no longer waiting for other mods' start-up work).
+- The terminal gets the same facts as plain lines.
+- Other mods' bars now stack under it instead of being hidden.
+

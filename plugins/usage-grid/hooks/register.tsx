@@ -20,6 +20,8 @@ const where = atom({ plugin: 'usage-grid', key: 'where' } as const, '')
 const pending = atom({ plugin: 'usage-grid', key: 'pending' } as const, null, { shape: 'pending-1' })
 // The work card over the prompt: hidden by the person until they show it again (this chat).
 const workHidden = atom({ plugin: 'usage-grid', key: 'workHidden' } as const, false)
+// The daily update, hidden for this chat by its own button.
+const dailyHidden = atom({ plugin: 'usage-grid', key: 'dailyHidden' } as const, false)
 
 // Empty day, then four steps light to heavy. Chosen to read on dark and light panes.
 const RAMP = ['#4a4438', '#6e5d3c', '#957a45', '#C9A45C', '#E6CC8F']
@@ -535,6 +537,7 @@ text{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text"
 .heat,.bar,.dot,.mfill,.gfill{fill:${GOLD}}.gline{stroke:${GOLD}}
 .empty{fill:#2B2620;fill-opacity:.08}.track{stroke:#2B2620;stroke-opacity:.09}.ringfg{stroke:${GOLD}}.sepl{stroke:#2B2620;stroke-opacity:.12}.mtrack{fill:#2B2620;fill-opacity:.08}
 .pill{fill:${GOLD};fill-opacity:.16}
+.warnt{fill:#B86A22}.alertt{fill:#B8503A}
 @media (prefers-color-scheme:dark){
 .card{fill:#1A1814;fill-opacity:.55;stroke-opacity:.32}
 .hl{stroke:#EFE6D2;stroke-opacity:.18}
@@ -542,6 +545,7 @@ text{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text"
 .accent{fill:${GOLD}}
 .empty{fill:#EFE6D2;fill-opacity:.10}.track{stroke:#EFE6D2;stroke-opacity:.12}.sepl{stroke:#EFE6D2;stroke-opacity:.12}.mtrack{fill:#EFE6D2;fill-opacity:.10}
 .pill{fill:${GOLD};fill-opacity:.18}
+.warnt{fill:#F7B36A}.alertt{fill:#F29580}
 }
 .cell:hover{stroke:${GOLD};stroke-width:1.5}
 `
@@ -798,7 +802,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       out.push(T(cx, cy + r + 22, ring.label, 't1', 12, 600, 'middle'))
       // A sign as well as a colour (like the widget): ▲ from 70%, ‼ from 90%.
       const sign = color ? ((ring.pct ?? 0) >= 90 ? '‼ ' : '▲ ') : ''
-      out.push(T(cx, cy + r + 37, sign + cut(ring.sub, Math.floor((colW - 8) / 5.6) - sign.length), 't2', 10, 500, 'middle', color ? `style="fill:${color}"` : ''))
+      out.push(T(cx, cy + r + 37, sign + cut(ring.sub, Math.floor((colW - 8) / 5.6) - sign.length), color ? ((ring.pct ?? 0) >= 90 ? 'alertt' : 'warnt') : 't2', 10, 500, 'middle'))
     })
     y += RH + GAP
 
@@ -972,6 +976,122 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
 
   return assemble()
 }
+
+// ───────────────────────── Daily update: the briefing at the start of each chat ─────────────────────────
+
+/** Will the weekly limit last at the pace so far? "on pace", or roughly when it would run out. */
+export const weekOutlook = (pct: number, resetsAt: string | null, nowMs: number): string | null => {
+  if (!resetsAt) return null
+  const left = Date.parse(resetsAt) - nowMs
+  const WEEK = 7 * 864e5
+  const used = WEEK - left
+  if (pct >= 100) return 'used up'
+  if (!(left > 0) || used <= 864e5 / 4 || pct <= 0) return 'on pace'
+  const msTo100 = ((100 - pct) / pct) * used
+  if (msTo100 >= left) return 'on pace'
+  const out = new Date(nowMs + msTo100)
+  return msTo100 < 864e5 ? `runs out in ~${Math.max(1, Math.round(msTo100 / 36e5))}h` : `runs out ${LONG_DAYS[out.getDay()]}`
+}
+
+export type DailyFacts = { date: string; time: string; usage: string; chats: string; forYou: string[]; wall: string | null; quote: [string, string] }
+
+/** The daily update as plain sentences, shared by the app (SVG) and the terminal (text). */
+export const dailyFacts = (s: Stats | null, l: Live | null, w: Work | null, m: Museum | null, nowMs: number): DailyFacts => {
+  const now = new Date(nowMs)
+  const iso = s?.today ?? toIso(new Date(nowMs - now.getTimezoneOffset() * 60000))
+  const today = s?.days[iso]
+  const yday = s?.days[addDays(iso, -1)]
+  const week = l?.limits.find(x => x.kind === 'seven_day')
+  const outlook = week ? weekOutlook(week.percentUsed, week.resetsAt, nowMs) : null
+  const usage = [
+    s ? `Today ${fmt(today?.out ?? 0)} output, yesterday ${fmt(yday?.out ?? 0)}.` : 'Reading your usage…',
+    week ? `Week ${Math.round(week.percentUsed)}%${week.resetsAt ? `, resets in ${untilText(week.resetsAt, nowMs)}` : ''}${outlook ? `: ${outlook}` : ''}.` : '',
+  ].filter(Boolean).join(' ')
+  // Chats: this one and every other open chat on the Mac; idle ones have finished their turn.
+  const others = l?.others ?? []
+  const isBusy = (c: { main: Work['main']; agents: WorkRow[] }) => c.main.busy || c.agents.some(a => ACTIVE.has(a.status))
+  const name = (c: ChatWork) => cut(c.title || folderOf(c.cwd), 26)
+  const working = [...(w && isBusy(w) ? [cut(l?.title ?? 'This chat', 26)] : []), ...others.filter(isBusy).map(name)]
+  const idle = others.filter(c => !isBusy(c)).map(name)
+  const list = (xs: string[], n: number) => xs.slice(0, n).join(', ') + (xs.length > n ? ` +${xs.length - n}` : '')
+  const chats = !working.length && !idle.length
+    ? 'No other chats open.'
+    : [working.length ? `${working.length} working (${list(working, 2)})` : 'Nothing working', idle.length ? `${idle.length} idle, ready for you: ${list(idle, 3)}` : ''].filter(Boolean).join(' · ')
+  const wall = m?.wall?.title ? [m.wall.title, [m.wall.artist, m.wall.year].filter(Boolean).join(', ')].filter(Boolean).join(' · ') : null
+  return {
+    date: `${LONG_DAYS[now.getDay()]}, ${LONG_MONTHS[now.getMonth()]} ${now.getDate()}`,
+    time: timeText(nowMs),
+    usage,
+    chats,
+    forYou: m?.reminders ?? [],
+    wall,
+    quote: quoteFor(iso),
+  }
+}
+
+/** Briefing lines: Usage, Chats, For you, On the wall, then the line of the day. Compact, for the bar over the prompt. */
+export const dailySvg = (f: DailyFacts, width: number): { svg: string; width: number; height: number } => {
+  const W = Math.round(Math.min(900, Math.max(340, width)))
+  const P = 2
+  const CW = W - 2 * P
+  const LW = W < 460 ? 66 : 80
+  const x0 = P + 18
+  const tx = x0 + LW
+  // Average SF character at 12.5 px is about 0.55 em; a little under-filling beats clipping.
+  const chars = Math.max(18, Math.floor((CW - 18 - LW - 18) / (12.5 * 0.56)))
+  // Up to `max` lines; if text was left over, the last line ends with "…" so nothing vanishes silently.
+  const fit = (text: string, max: number): string[] => {
+    const all = wrap(text, chars).map(line => cut(line, chars + 1))
+    const kept = all.slice(0, max)
+    if (all.length > max) kept[max - 1] = `${cut(kept[max - 1], chars - 1).replace(/[,·:\s…]+$/, '')}…`
+    return kept
+  }
+  const out: string[] = []
+  const T = (x: number, ty: number, str: string, cls: string, size: number, weight = 400, anchor = 'start', extra = '') =>
+    `<text x="${x.toFixed(1)}" y="${ty.toFixed(1)}" class="${cls}" font-size="${size}" font-weight="${weight}" text-anchor="${anchor}" ${extra}>${esc(str)}</text>`
+  const caps = (x: number, ty: number, str: string, cls = 't2', anchor = 'start') => T(x, ty, str.toUpperCase(), cls, 9.5, 600, anchor, 'letter-spacing="1.3"')
+  let y = P + 28
+  out.push(caps(x0, y, cut(`Daily update · ${f.date}`, Math.floor((CW - 110) / 7.2))))
+  out.push(caps(P + CW - 18, y, f.time, 'accent', 'end'))
+  y += 26
+  const rows: [string, string[]][] = [
+    ['Usage', fit(f.usage, 2)],
+    ['Chats', fit(f.chats, 2)],
+    // One reminder per line, so each one reads whole; the count of the rest after them.
+    ['For you', f.forYou.length ? [...f.forYou.slice(0, 2).map(r => cut(`◆ ${r}`, chars)), ...(f.forYou.length > 2 ? [`+${f.forYou.length - 2} more · /remind lists them`] : [])] : ['Nothing waiting on you.']],
+  ]
+  for (const [label, lines] of rows) {
+    out.push(caps(x0, y - 1, label))
+    lines.forEach((line, j) => out.push(T(tx, y + j * 18, line, line.startsWith('+') ? 't2' : 't1', line.startsWith('+') ? 11 : 12.5, 500)))
+    y += lines.length * 18 + 9
+  }
+  if (f.wall) {
+    out.push(caps(x0, y - 1, 'Wall'))
+    out.push(T(tx, y, cut(f.wall, Math.floor((CW - 18 - LW - 18) / (14 * 0.44))), 't1 serif', 14, 400, 'start', 'font-style="italic"'))
+    y += 27
+  }
+  out.push(`<line x1="${x0}" y1="${y - 6}" x2="${P + CW - 18}" y2="${y - 6}" class="sepl"/>`)
+  y += 14
+  const q = wrap(`“${f.quote[0]}” — ${f.quote[1]}`, Math.floor((CW - 36) / (14 * 0.46)))
+  q.forEach((line, j) => out.push(T(x0, y + j * 19, line, 't1 serif', 14, 400, 'start', 'font-style="italic"')))
+  y += (q.length - 1) * 19 + 18
+  const H = Math.round(y + P)
+  const glass =
+    `<rect x="${P + 0.5}" y="${P + 0.5}" width="${CW - 1}" height="${H - 2 * P - 1}" rx="18" class="card"/>` +
+    `<path d="M${P + 18} ${P + 1.5}H${P + CW - 18}" class="hl"/>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><style>${STYLE}</style>${glass}${out.join('')}</svg>`
+  return { svg, width: W, height: H }
+}
+
+/** The same briefing for the terminal: one line per topic. */
+export const dailyText = (f: DailyFacts): string[] => [
+  `Daily update · ${f.date}`,
+  `Usage    ${f.usage}`,
+  `Chats    ${f.chats}`,
+  `For you  ${f.forYou.length ? f.forYou.slice(0, 2).map(r => `◆ ${cut(r, 46)}`).join('  ') + (f.forYou.length > 2 ? `  +${f.forYou.length - 2}` : '') : 'Nothing waiting on you.'}`,
+  ...(f.wall ? [`Wall     ${f.wall}`] : []),
+  `“${f.quote[0]}” — ${f.quote[1]}`,
+]
 
 const LAPTOP =
   '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"><style>path{stroke:#9A7A3A}@media (prefers-color-scheme:dark){path{stroke:#C9A45C}}</style>' +
@@ -1171,24 +1291,27 @@ export const register: Register = on => {
     await $.command.register({ name: 'usage-grid', description: 'Open the usage dashboard: tokens, grid, agents, limits, tips' })
     await $.command.register({ name: 'dashboard', description: 'Open the usage dashboard (same as /usage-grid)' })
     await $.command.register({ name: 'remind', description: 'Reminders on the dashboard: /remind (list), /remind <text> (add), /remind done <n>' })
+    // Load the numbers right away, before the other mods' start-up work (vault sync, scans) finishes,
+    // so the daily update has them in a second or two. None of these block the chat.
+    void loadCachedStats($)
+    void refreshLive($)
+    void refreshOthers($)
+    void refreshMuseum($)
     const started = await next(e)
     // Open unasked at every start. The desktop app starts sessions through the SDK
     // (isInteractive false, no surface yet): an unasked pane waits for a surface to
     // attach and then shows, so it is not gated on isInteractive.
     // The dashboard goes at the top of the chat itself (the transcript's first row).
     void ensureRow($, 'start')
-    void refreshLive($)
-    void loadCachedStats($).then(() => refreshStats($))
+    void refreshStats($)
     $.clock.every(15000, () => void refreshLive($))
     $.clock.every(600000, () => void refreshStats($))
     // The painting on the wall and the reminders note change rarely: read them every 3 minutes.
-    void refreshMuseum($)
     $.clock.every(180000, () => void refreshMuseum($))
     void checkWhere($)
     $.clock.every(2000, () => void checkWhere($))
     // Work across chats: heartbeat out every 10 s, read the others every 5 s.
     void publish($, true)
-    void refreshOthers($)
     $.clock.every(10000, () => void publish($, true))
     $.clock.every(5000, () => void refreshOthers($))
     return started
@@ -1226,8 +1349,10 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The band over the prompt. A new chat (no turns yet): the front card, environment menu and a
-  // button for the full dashboard. Later: only when it matters (task fits another folder, 2+ running).
+  // The band over the prompt. The start of a chat (first message and Claude's first reply): the daily
+  // update, with buttons for the full dashboard and to hide it. The desktop app only starts a chat's
+  // process when the first message is sent, so "no turns yet" is never seen there; turns <= 1 is.
+  // Later: only when it matters (task fits another folder, 2+ running), else one slim line.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if ((e as any).props?.hasSurvey) return next(e)
     const [tk, w0, turns, s, l, wk, home] = await Promise.all([read($, task), read($, where), $.session.turns(), read($, stats), read($, live), read($, work), $.env.get('HOME')])
@@ -1240,6 +1365,51 @@ export const register: Register = on => {
     const running = workRows(wk, l?.now || Date.now(), l?.title ?? null, l?.others ?? []).running.length
     const mismatch = !!tk?.suggested && !tk.dismissed && tk.suggested !== cwd
     const isWorkHidden = await read($, workHidden)
+    const isDailyHidden = await read($, dailyHidden)
+    if (turns <= 1 && !isDailyHidden) {
+      const t0 = Date.now()
+      const cols: number = (e as any).props?.bodyColumns ?? e.viewport?.columns ?? 90
+      const f = dailyFacts(s, l, wk, await read($, museum), l?.now || Date.now())
+      const card = hasSvg ? dailySvg(f, Math.min(720, cols * 7.6)) : null
+      const isOpen = (await $.ui.panes()).some((pane: { id: string }) => pane.id === PANE)
+      const target = tk?.suggested ?? ''
+      if (!drawnOn.has(`daily:${e.surface}`)) {
+        drawnOn.add(`daily:${e.surface}`)
+        void note($, `daily update drawn on ${e.surface} (turns=${turns}, ${hasSvg ? 'picture' : 'text'}, ${Date.now() - t0} ms)`)
+      }
+      // Stack any later mod's bar under the daily update instead of hiding it.
+      const rest = await next(e)
+      return (
+        <Box flexDirection="column" gap={1}>
+          {card ? (
+            <Svg source={card.svg} alt={`Daily update. ${f.usage} ${f.chats}`} />
+          ) : (
+            // The terminal caps this bar at about ten lines: one line per topic, no border.
+            <Box flexDirection="column">
+              {dailyText(f).map((line, i, all) => (
+                <Text key={`d${i}`} color={i === 0 ? GOLD_TEXT : i === all.length - 1 ? 'subtle' : undefined} bold={i === 0}>{cut(line, Math.max(40, cols - 4))}</Text>
+              ))}
+            </Box>
+          )}
+          {mismatch ? (
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Text color={GOLD_TEXT}>This looks like {envName(target, home ?? '')} work; you're in {envName(cwd, home ?? '')}.</Text>
+              <Button key="env:daily-switch" variant="primary" label={`Switch to ${cut(envName(target, home ?? ''), 18)}`} onPress={() => void sendSwitch($, target)} />
+              <Button key="env:daily-stay" label="Stay" onPress={() => void update($, task, x => (x ? { ...x, dismissed: true } : x))} />
+            </Box>
+          ) : null}
+          <Box flexDirection="row" gap={2}>
+            <Button key="daily:open" plain onPress={() => void (isOpen ? $.ui.close({ id: PANE }) : $.ui.open({ id: PANE, title: TITLE }))}>
+              <Text color={GOLD_TEXT}>{isOpen ? 'Hide full dashboard' : 'Open full dashboard ›'}</Text>
+            </Button>
+            <Button key="daily:hide" plain onPress={() => void update($, dailyHidden, () => true)}>
+              <Text color="subtle">Hide for this chat</Text>
+            </Button>
+          </Box>
+          {rest}
+        </Box>
+      )
+    }
     if (!isNew && !mismatch && (running < 2 || isWorkHidden)) {
       // Nothing urgent: one slim line with a button that shows or hides the full dashboard.
       const isOpen = (await $.ui.panes()).some((pane: { id: string }) => pane.id === PANE)
@@ -1387,7 +1557,7 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // Reminders live in the Obsidian note "Reminders from Claude"; any chat (or Q) can add or tick one.
+  // Reminders live in the Obsidian note "Reminders from Claude"; any chat (or you) can add or tick one.
   on('command.run', { command: 'remind' }, async ($, e) => {
     const args = String((e as any).args ?? '').trim()
     const done = /^(done|x|tick)\s+(\d+)$/i.exec(args)

@@ -249,3 +249,55 @@ test('a reminder with a long path stays inside the card', () => {
   expect(svg.includes('Documents/museum-screensaver/build/Museum.saver')).toBe(false)
   expect(svg.includes('…')).toBe(true)
 })
+
+import { dailyFacts, dailySvg, dailyText, weekOutlook } from '../hooks/register'
+
+test('weekly outlook: on pace, or when the limit would run out', () => {
+  const now = Date.parse('2026-11-11T12:00:00Z')
+  // 3 days left of 7 (4 used): 40% used is on pace, 80% would run out in about a day.
+  expect(weekOutlook(40, '2026-11-14T12:00:00Z', now)).toBe('on pace')
+  expect(weekOutlook(85, '2026-11-14T12:00:00Z', now)).toBe('runs out in ~17h')
+  expect(weekOutlook(95, '2026-11-14T12:00:00Z', now)?.startsWith('runs out in ~')).toBe(true)
+  expect(weekOutlook(50, '2026-11-16T12:00:00Z', now)).toBe('runs out Friday')
+  expect(weekOutlook(100, '2026-11-14T12:00:00Z', now)).toBe('used up')
+  expect(weekOutlook(30, null, now)).toBe(null)
+})
+
+test('daily update: usage, chats, reminders, painting and a line, in the app and the terminal', () => {
+  const others: any[] = [
+    { sessionId: 'a', title: 'Museum screensaver', cwd: '/u/x', main: { busy: false, since: 0, tools: 0, lastTool: '' }, agents: [], updatedAt: live.now },
+    { sessionId: 'b', title: 'Widgets restyle', cwd: '/u/y', main: { busy: true, since: 0, tools: 3, lastTool: '' }, agents: [], updatedAt: live.now },
+  ]
+  const l = { ...live, title: 'Dashboard', others, limits: [{ kind: 'seven_day', percentUsed: 57, resetsAt: new Date(live.now + 17 * 36e5).toISOString() }] }
+  const busy = { ...EMPTY_WORK, main: { busy: true, since: live.now, tools: 1, lastTool: '' } }
+  const mu = { wall: { title: 'The Barque of Dante', artist: 'Eugène Delacroix', year: '1822', room: 'Dante' }, reminders: ['Install the screensaver', 'Run install.sh', 'Allow <Accessibility>'] }
+  const f = dailyFacts(stats, l, busy, mu, live.now)
+  expect(f.usage.startsWith('Today ')).toBe(true)
+  expect(f.usage.includes('yesterday')).toBe(true)
+  expect(f.usage.includes('Week 57%')).toBe(true)
+  expect(f.chats).toBe('2 working (Dashboard, Widgets restyle) · 1 idle, ready for you: Museum screensaver')
+  expect(f.wall).toBe('The Barque of Dante · Eugène Delacroix, 1822')
+  for (const width of [380, 560, 760]) {
+    const svg = dailySvg(f, width).svg
+    for (const part of ['DAILY UPDATE', 'USAGE', 'CHATS', 'FOR YOU', 'WALL', '+1 more', '◆ Install the screensaver']) expect(svg.includes(part)).toBe(true)
+    expect(svg.includes('Allow &lt;')).toBe(false)
+    expect(dailySvg(f, width).height).toBeLessThan(300)
+  }
+  const text = dailyText(f)
+  expect(text[0].startsWith('Daily update · ')).toBe(true)
+  expect(text.some(t => t.startsWith('Chats    2 working'))).toBe(true)
+  // Nothing open, nothing to do, no limits yet: still says something plain.
+  const empty = dailyFacts(null, null, null, null, live.now)
+  expect(empty.chats).toBe('No other chats open.')
+  expect(dailySvg(empty, 380).svg.includes('Nothing waiting on you.')).toBe(true)
+})
+
+test('daily update: long lines end with … instead of being clipped', () => {
+  const others: any[] = Array.from({ length: 30 }, (_, i) => ({ sessionId: `s${i}`, title: `A rather long chat title number ${i}`, cwd: '/u/x', main: { busy: i < 3, since: 0, tools: 0, lastTool: '' }, agents: [], updatedAt: live.now }))
+  const f = dailyFacts(stats, { ...live, others }, EMPTY_WORK, { wall: null, reminders: ['x'.repeat(200)] }, live.now)
+  const svg = dailySvg(f, 380).svg
+  const chatsLines = svg.split('</text>').filter(t => t.includes('A rather long') || t.includes('working'))
+  expect(chatsLines.length).toBeLessThan(3)
+  expect(chatsLines[chatsLines.length - 1].includes('…')).toBe(true)
+  expect(svg.includes('x'.repeat(80))).toBe(false)
+})
