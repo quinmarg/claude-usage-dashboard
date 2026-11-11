@@ -168,6 +168,24 @@ export const summarize = (s: Stats) => {
   return { keys, sum, best, longest, current, avgOut7: prior / 7, today: s.days[s.today] }
 }
 
+/** Rough width of bold system-font text: digits and capitals ~0.62 em, dots and spaces less. */
+export const textWidth = (t: string, size: number): number =>
+  [...t].reduce((w, ch) => w + (/[.,:· ]/.test(ch) ? 0.3 : /[A-Z0-9]/.test(ch) ? 0.64 : 0.56), 0) * size
+
+/** The largest font size up to `max` (never under 10) that fits `t` in `room` px. */
+export const fitFont = (t: string, room: number, max: number): number =>
+  Math.max(10, Math.min(max, Math.floor((max * room) / Math.max(1, textWidth(t, max)))))
+
+/** Column widths for the hero's mini stats: each gets what its label and value need plus a gap,
+ * then any spare width is shared evenly. If they can't all fit, widths scale down together. */
+export const miniWidths = (items: [string, string][], total: number): number[] => {
+  const need = items.map(([label, value], i) => Math.max(textWidth(value, i === 0 ? 16 : 14), textWidth(label, 10)) + (i === 0 ? 30 : 22))
+  const sum = need.reduce((a, b) => a + b, 0)
+  if (sum >= total) return need.map(n => (n * total) / sum)
+  const extra = (total - sum) / items.length
+  return need.map(n => n + extra)
+}
+
 /** Level 1..4 by quartile of output tokens across active days; 0 for no activity. */
 export const levelFor = (s: Stats): ((k: string) => number) => {
   const outs = Object.values(s.days).map(d => d.out).sort((a, b) => a - b)
@@ -583,13 +601,18 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       ['Days', String(keys.length)],
       ['Streak', `${current}d`],
     ]
-    const mw = (CW - 40) / mini.length
+    // Each column is as wide as its text needs (SVG text can't shrink itself), then the spare room is shared out.
+    const widths = miniWidths(mini, CW - 40)
+    let mx = P + 20
     mini.forEach(([label, value], i) => {
-      const mx = P + 20 + mw * i
-      if (i > 0) out.push(`<line x1="${mx - 7}" y1="${y + 130}" x2="${mx - 7}" y2="${y + 160}" stroke="#fff" stroke-opacity=".25"/>`)
-      if (i === 0) out.push(`<rect x="${mx - 6}" y="${y + 122}" width="${mw - 6}" height="44" rx="10" fill="#fff" fill-opacity=".16"/>`)
-      out.push(`<text x="${mx}" y="${y + 138}" fill="#fff" fill-opacity="${i === 0 ? '.95' : '.7'}" font-size="10" font-weight="${i === 0 ? 700 : 500}">${esc(label)}</text>`)
-      out.push(`<text x="${mx}" y="${y + 158}" fill="#fff" font-size="${i === 0 ? 16 : 14}" font-weight="700">${esc(value)}</text>`)
+      const cw = widths[i]
+      const lead = i === 0
+      const size = fitFont(value, cw - (lead ? 16 : 12), lead ? 16 : 14)
+      if (i > 1) out.push(`<line x1="${mx - 8}" y1="${y + 130}" x2="${mx - 8}" y2="${y + 160}" stroke="#fff" stroke-opacity=".25"/>`)
+      if (lead) out.push(`<rect x="${mx - 8}" y="${y + 122}" width="${cw - 4}" height="44" rx="10" fill="#fff" fill-opacity=".16"/>`)
+      out.push(`<text x="${mx}" y="${y + 138}" fill="#fff" fill-opacity="${lead ? '.95' : '.7'}" font-size="10" font-weight="${lead ? 700 : 500}">${esc(label)}</text>`)
+      out.push(`<text x="${mx}" y="${y + 158}" fill="#fff" font-size="${size}" font-weight="700">${esc(value)}</text>`)
+      mx += cw
     })
     y += HH + GAP
     if (mode === 'home') return assemble()

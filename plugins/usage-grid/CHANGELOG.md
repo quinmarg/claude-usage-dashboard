@@ -1,5 +1,8 @@
 # Changelog (usage-grid)
 
+## 0.10.1 (2026-11-10)
+- Hero mini stats: each column is sized to its text and values shrink to fit, so long totals like Fable's no longer run into Output.
+
 ## 0.10.0 (2026-11-10)
 - Fable usage: stats.py counts Fable tokens per day (`fa` all, `fo` output). The hero gets a highlighted Fable slot, the rings a fourth Fable ring (its own limit if one is reported, else its share of all tokens), the Today strip a "Fable today" column, and the slim band and terminal view a Fable total.
 - The other mini stats, rings and Today columns are smaller so everything fits.

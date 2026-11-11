@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { fmt, levelFor, recommend, summarize, untilText } from '../hooks/register'
+import { fitFont, fmt, levelFor, miniWidths, recommend, summarize, textWidth, untilText } from '../hooks/register'
 
 const d = (out: number, sessions = 1) => ({ in: 10, out, cr: 1000, cw: 5, sessions })
 const stats = {
@@ -178,4 +178,17 @@ test('the live top and the slow body are separate pictures', () => {
   const later = { ...live, now: live.now + 60000 }
   const busier = { ...busy, main: { ...busy.main, tools: 9, lastTool: 'Edit x' } }
   expect(dashboardSvg(stats, later, 600, busier, 'body').svg).toBe(body)
+})
+
+test('hero mini stats: every value fits its column, even long Fable totals', () => {
+  for (const total of [300, 360, 520]) {
+    const items: [string, string][] = [['Fable', '140.6M'], ['Output', '7.3M'], ['Sessions', '141'], ['Days', '17'], ['Streak', '7d']]
+    const w = miniWidths(items, total)
+    expect(Math.round(w.reduce((a, b) => a + b, 0))).toBe(total)
+    items.forEach(([, v], i) => {
+      const size = fitFont(v, w[i] - (i === 0 ? 16 : 12), i === 0 ? 16 : 14)
+      expect(textWidth(v, size)).toBeLessThanOrEqual(w[i] - (i === 0 ? 16 : 12) + 0.5)
+    })
+    expect(w[0]).toBeGreaterThan(w[3])  // the Fable column is wider than Days
+  }
 })
