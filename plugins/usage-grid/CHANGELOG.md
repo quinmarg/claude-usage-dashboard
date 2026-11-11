@@ -1,5 +1,11 @@
 # Changelog (usage-grid)
 
+## 0.12.2 (2026-11-11)
+- Folder switch, after review: the 30-second timer is gone (a plugin's message only goes in once the chat is idle, so a press during a long reply was being dropped). Each press makes a one-time code stored in the chat's own state (kept across `/reload-plugins`); the message must carry this chat's id and the latest code and is accepted once, marked used only after it really went in. Same folder pressed again: "already on its way"; another folder replaces it; a refused or failed send clears it. The "didn't happen" notice waits while the chat is busy.
+- Every Button key now carries the chat's id (also Open/Hide dashboard, Show/Hide working now, Hide for this chat).
+- Robustness: a failure while drawing the bar falls back to the other mods' bars; the line of the day survives a bad date; the three commands register independently.
+- Note: 0.12.1's cause (same button keys across chats) is likely but not proven: presses were not logged per chat before. They are now ("switch pressed", "dropped", "ignored here").
+
 ## 0.12.1 (2026-11-11)
 - Fix: chats were moved to folders nobody chose. Every chat drew its switch buttons with the same `key`, so one press could run the same-named button in other chats (each switching to its own suggested folder), and a second press sent a second switch. Now: keys carry the chat's id; a press is checked against the chat; one switch per chat per 30 s; the switch message carries the chat's id and `prompt.submit` drops it if it is for another chat, already used, or older than 30 s. Presses and drops are logged.
 - Tests: wrong chat ignored, double press / repeated message ignored, stale request expired.

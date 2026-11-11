@@ -302,51 +302,66 @@ test('daily update: long lines end with … instead of being clipped', () => {
   expect(svg.includes('x'.repeat(80))).toBe(false)
 })
 
-import { chatTag, mayPress, parseSwitch, switchGate, switchPrompt, SWITCH_TTL } from '../hooks/register'
+import { chatTag, newNonce, parseSwitch, pressVerdict, switchGate, switchPrompt } from '../hooks/register'
+
+const ME = '7f3d1397-1042-4093-914d-829dc181f760'
+const OTHER = '10c63692-2e95-441b-beb6-ec02ab6929e9'
 
 test('folder switch: a message for another chat is ignored', () => {
-  const me = '7f3d1397-1042-4093-914d-829dc181f760'
-  const other = '10c63692-2e95-441b-beb6-ec02ab6929e9'
-  const t = 1_000_000
-  const mine = { sid: me, path: '/u/Documents/dash', at: t, used: false }
-  // The message names the other chat: refused even though this chat has its own request.
-  const msg = parseSwitch(switchPrompt('/u/Documents/dash', chatTag(other)))
-  expect(msg).toEqual({ path: '/u/Documents/dash', tag: chatTag(other) })
-  expect(switchGate(mine, me, msg!.tag, msg!.path, t + 1000)).toBe('wrong-chat')
+  const mine = { sid: ME, path: '/u/Documents/dash', nonce: 'k3j2h1ab', used: false }
+  const msg = parseSwitch(switchPrompt('/u/Documents/dash', chatTag(OTHER), 'k3j2h1ab'))
+  expect(msg).toEqual({ path: '/u/Documents/dash', tag: chatTag(OTHER), nonce: 'k3j2h1ab' })
+  expect(switchGate(mine, ME, msg!.tag, msg!.nonce, msg!.path)).toBe('wrong-chat')
   // A request made in another chat never lets this chat move.
-  expect(switchGate({ ...mine, sid: other }, me, chatTag(me), '/u/Documents/dash', t + 1000)).toBe('wrong-chat')
-  // A different folder from the one pressed: refused.
-  expect(switchGate(mine, me, chatTag(me), '/u/Documents/gallery', t + 1000)).toBe('wrong-chat')
-  // No press in this chat at all (an old, untagged message): refused.
-  expect(switchGate(null, me, chatTag(me), '/u/Documents/dash', t)).toBe('no-request')
-  expect(parseSwitch("Switch this chat's environment to the folder /u/Documents/dash: if the tool")?.tag).toBe(null)
-  expect(switchGate(mine, me, null, '/u/Documents/dash', t)).toBe('wrong-chat')
-  // The right chat, the pressed folder, in time: goes ahead.
-  expect(switchGate(mine, me, chatTag(me), '/u/Documents/dash', t + 1000)).toBe('ok')
-  // Paths with spaces survive the round trip.
-  expect(parseSwitch(switchPrompt('/u/Library/Application Support/x y', 'abcd1234'))?.path).toBe('/u/Library/Application Support/x y')
+  expect(switchGate({ ...mine, sid: OTHER }, ME, chatTag(ME), 'k3j2h1ab', '/u/Documents/dash')).toBe('wrong-chat')
+  // No press in this chat (an old untagged message, or nothing stored): refused.
+  expect(parseSwitch("Switch this chat's environment to the folder /u/Documents/dash: if the tool")).toEqual({ path: '/u/Documents/dash', tag: null, nonce: null })
+  expect(switchGate(mine, ME, null, null, '/u/Documents/dash')).toBe('wrong-chat')
+  expect(switchGate(null, ME, chatTag(ME), 'k3j2h1ab', '/u/Documents/dash')).toBe('no-request')
+  // A different folder or an old code: refused.
+  expect(switchGate(mine, ME, chatTag(ME), 'k3j2h1ab', '/u/Documents/gallery')).toBe('replaced')
+  expect(switchGate(mine, ME, chatTag(ME), 'oldcode1', '/u/Documents/dash')).toBe('replaced')
+  // This chat, the pressed folder, the press's code: goes ahead.
+  expect(switchGate(mine, ME, chatTag(ME), 'k3j2h1ab', '/u/Documents/dash')).toBe('ok')
+  expect(parseSwitch(switchPrompt('/u/Library/Application Support/x y', 'abcd1234', 'zz99yy88'))?.path).toBe('/u/Library/Application Support/x y')
   expect(parseSwitch('Fix the switch button')).toBe(null)
 })
 
-test('folder switch: a double press or a repeated message is ignored', () => {
-  const me = 'aaaaaaaa-1111'
-  const t = 2_000_000
-  expect(mayPress(null, me, t)).toBe(true)
-  const req = { sid: me, path: '/u/a', at: t, used: false }
-  expect(mayPress(req, me, t + 500)).toBe(false)
-  expect(mayPress(req, me, t + SWITCH_TTL - 1)).toBe(false)
-  expect(mayPress(req, me, t + SWITCH_TTL + 1)).toBe(true)
-  // Another chat's request does not block this chat's own press.
-  expect(mayPress({ ...req, sid: 'bbbbbbbb-2222' }, me, t + 500)).toBe(true)
+test('folder switch: a double press or a repeated message is ignored; another folder replaces', () => {
+  const req = { sid: ME, path: '/u/a', nonce: 'aaaa1111', used: false }
+  expect(pressVerdict(null, ME, '/u/a')).toBe('start')
+  expect(pressVerdict(req, ME, '/u/a')).toBe('already')
+  // A press to another folder replaces the pending one; the old message is then refused.
+  expect(pressVerdict(req, ME, '/u/b')).toBe('start')
+  const replaced = { sid: ME, path: '/u/b', nonce: 'bbbb2222', used: false }
+  expect(switchGate(replaced, ME, chatTag(ME), 'aaaa1111', '/u/a')).toBe('replaced')
   // The same message twice: the second is a duplicate.
-  expect(switchGate({ ...req, used: true }, me, chatTag(me), '/u/a', t + 2000)).toBe('duplicate')
+  expect(switchGate({ ...req, used: true }, ME, chatTag(ME), 'aaaa1111', '/u/a')).toBe('duplicate')
+  // Another chat's pending switch does not block this chat.
+  expect(pressVerdict({ ...req, sid: OTHER }, ME, '/u/a')).toBe('start')
+  // Every press gets a fresh code.
+  expect(new Set(Array.from({ length: 50 }, () => newNonce())).size).toBe(50)
 })
 
-test('folder switch: a request older than 30 seconds has expired', () => {
-  const me = 'cccccccc-3333'
-  const t = 3_000_000
-  const req = { sid: me, path: '/u/a', at: t, used: false }
-  expect(switchGate(req, me, chatTag(me), '/u/a', t + SWITCH_TTL)).toBe('ok')
-  expect(switchGate(req, me, chatTag(me), '/u/a', t + SWITCH_TTL + 1)).toBe('stale')
-  expect(switchGate(req, me, chatTag(me), '/u/a', t + 600000)).toBe('stale')
+test('folder switch: a press during a long reply still goes through (no timer)', () => {
+  // The message is only sent once the chat is idle, maybe minutes later: the code still matches.
+  const req = { sid: ME, path: '/u/a', nonce: 'long7777', used: false }
+  expect(switchGate(req, ME, chatTag(ME), 'long7777', '/u/a')).toBe('ok')
+})
+
+test('folder switch: after a refused or failed send, pressing again works', () => {
+  // A refused send clears the request (sendSwitch's clear): nothing pending, so a press starts again.
+  expect(pressVerdict(null, ME, '/u/a')).toBe('start')
+  // A used request (moved, or sent) never blocks a new press.
+  expect(pressVerdict({ sid: ME, path: '/u/a', nonce: 'used1234', used: true }, ME, '/u/a')).toBe('start')
+})
+
+test('folder switch: the request is plain data, so it survives a plugin reload', () => {
+  const req = { sid: ME, path: '/u/a', nonce: 'relo4567', used: false }
+  const restored = JSON.parse(JSON.stringify(req))
+  expect(switchGate(restored, ME, chatTag(ME), 'relo4567', '/u/a')).toBe('ok')
+})
+
+test('line of the day never breaks on a bad date', () => {
+  expect(quoteFor('not-a-date')[0].length).toBeGreaterThan(0)
 })

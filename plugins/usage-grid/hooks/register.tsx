@@ -327,11 +327,20 @@ async function checkWhere($: any): Promise<void> {
     // A switch on its way: done when the chat is there; a nudge after 20 s; given up after 2 minutes.
     const pend = await read($, pending)
     if (pend) {
-      const age = Date.now() - pend.at
       const name = envName(pend.path, home ?? '')
-      if (pend.path === cwd) await update($, pending, () => null)
-      else if (age > 120000) {
+      // A plugin's message waits until the chat is idle: while a reply runs, the wait has not begun.
+      const isBusy = (await read($, work)).main.busy
+      if (isBusy && pend.path !== cwd) {
+        await update($, pending, p => (p ? { ...p, at: Date.now() } : p))
+        return
+      }
+      const age = Math.max(0, Date.now() - pend.at)
+      if (pend.path === cwd) {
         await update($, pending, () => null)
+        await update($, switchReq, r => (r && r.path === cwd ? null : r))
+      } else if (age > 120000) {
+        await update($, pending, () => null)
+        await update($, switchReq, r => (r && r.path === pend.path ? null : r))
         $.ui.toast(`The switch to ${name} didn't happen. Press it again.`)
       } else if (age > 20000 && !pend.nagged) {
         await update($, pending, p => (p ? { ...p, nagged: true } : p))
@@ -480,7 +489,8 @@ export const QUOTES: [string, string][] = [
 ]
 
 export const quoteFor = (iso: string): [string, string] => {
-  const day = Math.floor(toDate(iso).getTime() / 864e5)
+  const t = toDate(iso).getTime()
+  const day = Number.isFinite(t) ? Math.floor(t / 864e5) : 0
   return QUOTES[((day % QUOTES.length) + QUOTES.length) % QUOTES.length]
 }
 
@@ -1099,41 +1109,49 @@ const LAPTOP =
 const envName = (path: string, home: string): string =>
   path === home ? 'Home' : (path.replace(/\/+$/, '').split('/').pop() ?? path)
 
-// ── Folder switch: one press, in the chat where it was pressed, once, within 30 s ──
-// 2026-11-11 bug: several chats moved to folders nobody chose. The switch buttons had the same
-// address (`key`) in every chat, so one press could run the same-named button in other chats, each
-// switching to its own suggested folder, and a second press sent a second switch. Now every switch
-// button's key carries its chat's id, a press is checked against this chat, each chat starts at
-// most one switch per 30 s, and the switch message itself carries the chat's id: prompt.submit
-// drops any switch message that is for another chat, already used, or older than 30 s.
-export type SwitchRequest = { sid: string; path: string; at: number; used: boolean }
-export const SWITCH_TTL = 30000
-export type SwitchVerdict = 'ok' | 'no-request' | 'wrong-chat' | 'duplicate' | 'stale'
+// ── Folder switch: one press, in the chat where it was pressed, once ──
+// 2026-11-11 bug: several chats moved to folders nobody chose (three chats fired switches within
+// 10 s; which chat each press came from was not logged, so the exact cause is not proven). Now:
+// every Button key carries its chat's id; each press makes a one-time code (nonce) stored in this
+// chat's own state (kept across /reload-plugins); the switch message carries the chat's id and the
+// code; prompt.submit lets it in only for this chat, with the latest code, once. No timer: a
+// plugin's message is only sent once the chat is idle, so a press during a long reply still counts.
+// A press to another folder replaces the pending one; a refused or failed send clears it.
+export type SwitchRequest = { sid: string; path: string; nonce: string; used: boolean }
+export type SwitchVerdict = 'ok' | 'no-request' | 'wrong-chat' | 'replaced' | 'duplicate'
 export const chatTag = (sid: string): string => sid.slice(0, 8)
-/** May a press start a switch in chat `sid`? Not if this chat started one in the last 30 s. */
-export const mayPress = (req: SwitchRequest | null, sid: string, now: number): boolean =>
-  !(req && req.sid === sid && now - req.at < SWITCH_TTL)
-/** May a switch message for `path`, tagged `tag`, go ahead in chat `sid`? */
-export const switchGate = (req: SwitchRequest | null, sid: string, tag: string | null, path: string, now: number): SwitchVerdict => {
+export const newNonce = (): string => `${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-4)}`
+/** A press: 'already' if this same folder is already on its way in this chat, else 'start' (replacing any other). */
+export const pressVerdict = (req: SwitchRequest | null, sid: string, path: string): 'start' | 'already' =>
+  req && req.sid === sid && req.path === path && !req.used ? 'already' : 'start'
+/** May a switch message (path, chat tag, code) go ahead in chat `sid`? */
+export const switchGate = (req: SwitchRequest | null, sid: string, tag: string | null, nonce: string | null, path: string): SwitchVerdict => {
   if (tag !== chatTag(sid)) return 'wrong-chat'
   if (!req) return 'no-request'
-  if (req.sid !== sid || req.path !== path) return 'wrong-chat'
-  if (now - req.at > SWITCH_TTL) return 'stale'
+  if (req.sid !== sid) return 'wrong-chat'
+  if (req.nonce !== nonce || req.path !== path) return 'replaced'
   if (req.used) return 'duplicate'
   return 'ok'
 }
-/** "Switch this chat's environment to [the folder] <path> [chat 1a2b3c4d]…" → path and tag. */
-export const parseSwitch = (text: string): { path: string; tag: string | null } | null => {
+/** "Switch this chat's environment to [the folder] <path> [chat 1a2b3c4d k3j2h1]…" → path, chat tag, code. */
+export const parseSwitch = (text: string): { path: string; tag: string | null; nonce: string | null } | null => {
   if (!text.startsWith(SWITCH_MARK)) return null
-  const m = /^Switch this chat's environment to (?:the folder )?(.+?) \[chat ([0-9a-f-]{1,8})\]/.exec(text)
-  if (m) return { path: m[1], tag: m[2] }
+  const m = /^Switch this chat's environment to (?:the folder )?(.+?) \[chat ([0-9a-f-]{1,8})(?: ([0-9a-z]{4,16}))?\]/.exec(text)
+  if (m) return { path: m[1], tag: m[2], nonce: m[3] ?? null }
   const old = /^Switch this chat's environment to (?:the folder )?(\/[^:]+?)(?::| \(| $)/.exec(text)
-  return { path: old ? old[1] : '', tag: null }
+  return { path: old ? old[1] : '', tag: null, nonce: null }
 }
-const switchReqs = new Map<string, SwitchRequest>()
+const switchReq = atom({ plugin: 'usage-grid', key: 'switchReq' } as const, null as SwitchRequest | null, { shape: 'switch-1' })
+const SWITCH_WHY: Record<SwitchVerdict, string> = {
+  ok: '',
+  'no-request': 'no switch was pressed in this chat',
+  'wrong-chat': 'it was for another chat',
+  replaced: 'a newer switch replaced it',
+  duplicate: 'already sent',
+}
 
 // No switch to the folder the chat is already in. Says at once that the switch is on its way,
-// and why if the prompt could not be sent. `pressedIn` is the tag of the chat whose button was pressed.
+// and why if the message could not be sent. `pressedIn` is the tag of the chat whose button was pressed.
 async function sendSwitch($: any, path: string, pressedIn: string): Promise<void> {
   const [cwd, home, sid] = await Promise.all([$.session.cwd(), $.env.get('HOME'), $.session.id()])
   const name = envName(path, home ?? '')
@@ -1146,17 +1164,25 @@ async function sendSwitch($: any, path: string, pressedIn: string): Promise<void
     $.ui.toast(`Already in ${name}.`)
     return
   }
-  if (!mayPress(switchReqs.get(sid) ?? null, sid, now)) {
-    void note($, `second switch press within 30 s ignored (to ${path})`)
+  if (pressVerdict(await read($, switchReq), sid, path) === 'already') {
+    $.ui.toast(`A switch to ${name} is already on its way.`)
+    void note($, `repeat press ignored (switch to ${path} already on its way)`)
     return
   }
-  switchReqs.set(sid, { sid, path, at: now, used: false })
-  void note($, `switch pressed: to ${path}`)
+  const nonce = newNonce()
+  await update($, switchReq, () => ({ sid, path, nonce, used: false }))
+  void note($, `switch pressed: to ${path} (code ${nonce})`)
   const tag = chatTag(sid)
+  const clear = async (why: string) => {
+    await update($, switchReq, r => (r && r.nonce === nonce ? null : r))
+    await update($, pending, () => null)
+    $.ui.toast(`Couldn't switch to ${name}: ${why}`)
+    void note($, `switch to ${path} not sent: ${why.slice(0, 160)}`)
+  }
   await update($, pending, () => ({ path, at: now, nagged: false }))
   $.ui.toast(`Switching to ${name}…`)
   // Fast path: the mod calls the app's move tool itself, with the press as consent: no Claude reply.
-  // Fallback: the prompt (Claude makes the call). A press must return within 10 s, so none of this is awaited.
+  // Fallback: the message (Claude makes the call). A press must return within 10 s, so none of this is awaited.
   void (async () => {
     // Check the folder often for a few seconds, so the ✓ moves as soon as the chat lands.
     for (const ms of [400, 900, 1500, 2200, 3000, 4000, 5500]) $.clock.after(ms, () => void checkWhere($))
@@ -1177,28 +1203,32 @@ async function sendSwitch($: any, path: string, pressedIn: string): Promise<void
       // right away; the mod answers that turn itself (see turn.step), so no model call runs.
       $.clock.after(250, () => {
         void (async () => {
-          if ((await $.session.cwd()) === path) return
-          void $.prompt.submit({ text: `${SWITCH_MARK} ${path} [chat ${tag}] ${DONE_MARK}` })
+          if ((await $.session.cwd()) === path) {
+            await update($, switchReq, r => (r && r.nonce === nonce ? null : r))
+            return
+          }
+          try {
+            const r: any = await $.prompt.submit({ text: `${SWITCH_MARK} ${path} [chat ${tag} ${nonce}] ${DONE_MARK}` })
+            if (r && typeof (r.drop ?? r.deny) === 'string') await clear(r.drop ?? r.deny)
+          } catch (err) {
+            await clear(String(err))
+          }
         })()
       })
       return
     }
     try {
-      const r: any = await $.prompt.submit({ text: switchPrompt(path, tag) })
-      if (r && typeof r.deny === 'string') {
-        void update($, pending, () => null)
-        $.ui.toast(`Couldn't switch to ${name}: ${r.deny}`)
-      }
+      const r: any = await $.prompt.submit({ text: switchPrompt(path, tag, nonce) })
+      if (r && typeof (r.drop ?? r.deny) === 'string') await clear(r.drop ?? r.deny)
     } catch (err) {
-      void update($, pending, () => null)
-      $.ui.toast(`Couldn't switch to ${name}: ${String(err)}`)
+      await clear(String(err))
     }
   })()
 }
 
 // The app's tool is often deferred (not loaded yet), so the prompt says how to load it.
-export const switchPrompt = (path: string, tag: string) =>
-  `${SWITCH_MARK} the folder ${path} [chat ${tag}]: if the tool mcp__ccd_directory__change_directory is not loaded, load it with ToolSearch (query "select:mcp__ccd_directory__change_directory"), then call it with that exact path, nothing else, and confirm in one short line.`
+export const switchPrompt = (path: string, tag: string, nonce: string) =>
+  `${SWITCH_MARK} the folder ${path} [chat ${tag} ${nonce}]: if the tool mcp__ccd_directory__change_directory is not loaded, load it with ToolSearch (query "select:mcp__ccd_directory__change_directory"), then call it with that exact path, nothing else, and confirm in one short line.`
 const CHOOSE_PROMPT =
   'Let me choose a different environment folder for this chat. If they are not loaded, load the tools with ToolSearch (query "select:mcp__ccd_directory__request_directory,mcp__ccd_directory__change_directory"). Call request_directory with no path so I can pick a folder, then call change_directory with the exact folder it granted, so the chat moves there. Nothing else; confirm in one short line.'
 
@@ -1327,12 +1357,148 @@ async function ensureRow($: any, why: string) {
   }
 }
 
+/** The bar above the prompt (daily update, switch suggestion, working now, or the slim line). */
+async function drawAbovePrompt($: any, e: any, next: (ev: any) => any, drawnOn: Set<string>): Promise<any> {
+  if ((e as any).props?.hasSurvey) return next(e)
+  const [tk, w0, turns, s, l, wk, home] = await Promise.all([read($, task), read($, where), $.session.turns(), read($, stats), read($, live), read($, work), $.env.get('HOME')])
+  const cwd = w0 || (await $.session.cwd())
+  const els = $.ui.resolve(e)
+  const { Box, Button, Text } = els
+  const tag = chatTag(await $.session.id())
+  const hasSvg = e.surface !== 'terminal' && 'Svg' in els
+  const Svg = (els as any).Svg
+  const isNew = turns === 0
+  const running = workRows(wk, l?.now || Date.now(), l?.title ?? null, l?.others ?? []).running.length
+  const mismatch = !!tk?.suggested && !tk.dismissed && tk.suggested !== cwd
+  const isWorkHidden = await read($, workHidden)
+  const isDailyHidden = await read($, dailyHidden)
+  if (turns <= 1 && !isDailyHidden) {
+    const t0 = Date.now()
+    const cols: number = (e as any).props?.bodyColumns ?? e.viewport?.columns ?? 90
+    const f = dailyFacts(s, l, wk, await read($, museum), l?.now || Date.now())
+    const card = hasSvg ? dailySvg(f, Math.min(720, cols * 7.6)) : null
+    const isOpen = (await $.ui.panes()).some((pane: { id: string }) => pane.id === PANE)
+    const target = tk?.suggested ?? ''
+    if (!drawnOn.has(`daily:${e.surface}`)) {
+      drawnOn.add(`daily:${e.surface}`)
+      void note($, `daily update drawn on ${e.surface} (turns=${turns}, ${hasSvg ? 'picture' : 'text'}, ${Date.now() - t0} ms)`)
+    }
+    // Stack any later mod's bar under the daily update instead of hiding it.
+    const rest = await next(e)
+    return (
+      <Box flexDirection="column" gap={1}>
+        {card ? (
+          <Svg source={card.svg} alt={`Daily update. ${f.usage} ${f.chats}`} />
+        ) : (
+          // The terminal caps this bar at about ten lines: one line per topic, no border.
+          <Box flexDirection="column">
+            {dailyText(f).map((line, i, all) => (
+              <Text key={`d${i}`} color={i === 0 ? GOLD_TEXT : i === all.length - 1 ? 'subtle' : undefined} bold={i === 0}>{cut(line, Math.max(40, cols - 4))}</Text>
+            ))}
+          </Box>
+        )}
+        {mismatch ? (
+          <Box flexDirection="row" gap={1} alignItems="center">
+            <Text color={GOLD_TEXT}>This looks like {envName(target, home ?? '')} work; you're in {envName(cwd, home ?? '')}.</Text>
+            <Button key={`env:daily-switch:${tag}`} variant="primary" label={`Switch to ${cut(envName(target, home ?? ''), 18)}`} onPress={() => void sendSwitch($, target, tag)} />
+            <Button key={`env:daily-stay:${tag}`} label="Stay" onPress={() => void update($, task, x => (x ? { ...x, dismissed: true } : x))} />
+          </Box>
+        ) : null}
+        <Box flexDirection="row" gap={2}>
+          <Button key={`daily:open:${tag}`} plain onPress={() => void (isOpen ? $.ui.close({ id: PANE }) : $.ui.open({ id: PANE, title: TITLE }))}>
+            <Text color={GOLD_TEXT}>{isOpen ? 'Hide full dashboard' : 'Open full dashboard ›'}</Text>
+          </Button>
+          <Button key={`daily:hide:${tag}`} plain onPress={() => void update($, dailyHidden, () => true)}>
+            <Text color="subtle">Hide for this chat</Text>
+          </Button>
+        </Box>
+        {rest}
+      </Box>
+    )
+  }
+  if (!isNew && !mismatch && (running < 2 || isWorkHidden)) {
+    // Nothing urgent: one slim line with a button that shows or hides the full dashboard.
+    const isOpen = (await $.ui.panes()).some((pane: { id: string }) => pane.id === PANE)
+    const five = l?.limits.find(x => x.kind === 'five_hour')
+    const sumNow = s ? summarize(s).sum : null
+    const facts = [sumNow ? `${fmt(sumNow.all)} tokens` : '', sumNow && sumNow.fable > 0 ? `Fable ${fmt(sumNow.fable)}` : '', five ? `5-hour ${Math.round(five.percentUsed)}%` : '', running === 1 ? '1 running' : '']
+      .filter(Boolean)
+      .join(' · ')
+    return (
+      <Box flexDirection="row" gap={2} alignItems="center">
+        <Button
+          key={`dash:toggle:${tag}`}
+          plain
+          onPress={() => void (isOpen ? $.ui.close({ id: PANE }) : $.ui.open({ id: PANE, title: TITLE }))}
+        >
+          <Text color={GOLD_TEXT}>{isOpen ? '▦ Hide dashboard' : '▦ Dashboard'}</Text>
+        </Button>
+        {facts ? <Text color="subtle">{facts}</Text> : null}
+        {isWorkHidden && running >= 2 ? (
+          <Button key={`work:show:${tag}`} plain onPress={() => void update($, workHidden, () => false)}>
+            <Text color={GOLD_TEXT}>▴ Show working now ({running})</Text>
+          </Button>
+        ) : null}
+      </Box>
+    )
+  }
+  if (!drawnOn.has(`band:${e.surface}`)) {
+    drawnOn.add(`band:${e.surface}`)
+    void note($, `band drawn on ${e.surface} (new=${isNew}, running=${running}, mismatch=${mismatch})`)
+  }
+  const cols: number = (e as any).props?.bodyColumns ?? e.viewport?.columns ?? 90
+  const widthPx = Math.min(720, cols * 7.6)
+  const isFullOpen = (await $.ui.panes()).some((pane: { id: string }) => pane.id === PANE)
+  const openFull = (
+    <Button key={`dash:open:${tag}`} plain onPress={() => void (isFullOpen ? $.ui.close({ id: PANE }) : $.ui.open({ id: PANE, title: TITLE }))}>
+      <Text color={GOLD_TEXT}>{isFullOpen ? 'Hide full dashboard' : 'Open full dashboard ›'}</Text>
+    </Button>
+  )
+  if (isNew) {
+    const card = hasSvg ? dashboardSvg(s, l, widthPx, wk, 'home', await read($, museum)) : null
+    return (
+      <Box flexDirection="column" gap={1}>
+        {card ? <Svg source={card.svg} alt={`Total tokens ${s ? fmt(summarize(s).sum.all) : ''}`} /> : null}
+        {await envMenu($, els)}
+        {openFull}
+      </Box>
+    )
+  }
+  const target = tk?.suggested ?? ''
+  const workCard = running >= 2 && !isWorkHidden && hasSvg ? dashboardSvg(s, l, widthPx, wk, 'work') : null
+  return (
+    <Box flexDirection="column" gap={1}>
+      {workCard ? <Svg source={workCard.svg} alt={`${running} running`} /> : running >= 2 ? <Text>{running} running</Text> : null}
+      {mismatch ? (
+        <Box flexDirection="row" gap={1} alignItems="center">
+          <Text color={GOLD_TEXT}>
+            This looks like {envName(target, home ?? '')} work; you're in {envName(cwd, home ?? '')}.
+          </Text>
+          <Button key={`env:band-switch:${tag}`} variant="primary" label={`Switch to ${cut(envName(target, home ?? ''), 18)}`} onPress={() => void sendSwitch($, target, tag)} />
+          <Button key={`env:band-stay:${tag}`} label="Stay" onPress={() => void update($, task, x => (x ? { ...x, dismissed: true } : x))} />
+        </Box>
+      ) : null}
+      <Box flexDirection="row" gap={2}>
+        {openFull}
+        {running >= 2 && !isWorkHidden ? (
+          <Button key={`work:hide:${tag}`} plain onPress={() => void update($, workHidden, () => true)}>
+            <Text color="subtle">▾ Hide working now</Text>
+          </Button>
+        ) : null}
+      </Box>
+    </Box>
+  )
+}
+
 export const register: Register = on => {
   const drawnOn = new Set<string>()
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'usage-grid', description: 'Open the usage dashboard: tokens, grid, agents, limits, tips' })
-    await $.command.register({ name: 'dashboard', description: 'Open the usage dashboard (same as /usage-grid)' })
-    await $.command.register({ name: 'remind', description: 'Reminders on the dashboard: /remind (list), /remind <text> (add), /remind done <n>' })
+    // One refused name (the app ships /dashboard) must not stop the others or the start.
+    await Promise.allSettled([
+      $.command.register({ name: 'usage-grid', description: 'Open the usage dashboard: tokens, grid, agents, limits, tips' }),
+      $.command.register({ name: 'dashboard', description: 'Open the usage dashboard (same as /usage-grid)' }),
+      $.command.register({ name: 'remind', description: 'Reminders on the dashboard: /remind (list), /remind <text> (add), /remind done <n>' }),
+    ])
     // Load the numbers right away, before the other mods' start-up work (vault sync, scans) finishes,
     // so the daily update has them in a second or two. None of these block the chat.
     void loadCachedStats($)
@@ -1378,17 +1544,17 @@ export const register: Register = on => {
   let isRowSure = false
   on('prompt.submit', async ($, e, next) => {
     const text = e.text ?? ''
-    // A folder-switch message only goes ahead in the chat it was pressed in, once, within 30 s.
+    // A folder-switch message only goes ahead in the chat it was pressed in, with the press's code, once.
     const sw = parseSwitch(text)
+    let swNonce: string | null = null
     if (sw) {
       const sid = await $.session.id()
-      const req = switchReqs.get(sid) ?? null
-      const verdict = switchGate(req, sid, sw.tag, sw.path, Date.now())
+      const verdict = switchGate(await read($, switchReq), sid, sw.tag, sw.nonce, sw.path)
       if (verdict !== 'ok') {
         void note($, `switch message dropped (${verdict}): ${sw.path}`)
-        return { drop: `Folder switch not sent (${verdict === 'wrong-chat' ? 'it was for another chat' : verdict === 'duplicate' ? 'already sent' : verdict === 'stale' ? 'older than 30 seconds' : 'no button was pressed in this chat'}).` } as any
+        return { drop: `Folder switch not sent: ${SWITCH_WHY[verdict]}.` } as any
       }
-      if (req) switchReqs.set(sid, { ...req, used: true })
+      swNonce = sw.nonce
     }
     if (text.includes(DONE_MARK)) answerNextStep = true
     if (!e.isMeta && !e.command && !text.startsWith(SWITCH_MARK) && !text.startsWith(CHOOSE_PROMPT.slice(0, 30))) {
@@ -1400,143 +1566,29 @@ export const register: Register = on => {
       isRowSure = true
       void ensureRow($, 'first prompt')
     }
-    return next(e)
+    const entered = await next(e)
+    // Used up only once the message really went in.
+    if (swNonce && !(entered as any)?.drop) await update($, switchReq, r => (r && r.nonce === swNonce ? { ...r, used: true } : r))
+    return entered
   })
 
   // The band over the prompt. The start of a chat (first message and Claude's first reply): the daily
   // update, with buttons for the full dashboard and to hide it. The desktop app only starts a chat's
   // process when the first message is sent, so "no turns yet" is never seen there; turns <= 1 is.
   // Later: only when it matters (task fits another folder, 2+ running), else one slim line.
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if ((e as any).props?.hasSurvey) return next(e)
-    const [tk, w0, turns, s, l, wk, home] = await Promise.all([read($, task), read($, where), $.session.turns(), read($, stats), read($, live), read($, work), $.env.get('HOME')])
-    const cwd = w0 || (await $.session.cwd())
-    const els = $.ui.resolve(e)
-    const { Box, Button, Text } = els
-    const tag = chatTag(await $.session.id())
-    const hasSvg = e.surface !== 'terminal' && 'Svg' in els
-    const Svg = (els as any).Svg
-    const isNew = turns === 0
-    const running = workRows(wk, l?.now || Date.now(), l?.title ?? null, l?.others ?? []).running.length
-    const mismatch = !!tk?.suggested && !tk.dismissed && tk.suggested !== cwd
-    const isWorkHidden = await read($, workHidden)
-    const isDailyHidden = await read($, dailyHidden)
-    if (turns <= 1 && !isDailyHidden) {
-      const t0 = Date.now()
-      const cols: number = (e as any).props?.bodyColumns ?? e.viewport?.columns ?? 90
-      const f = dailyFacts(s, l, wk, await read($, museum), l?.now || Date.now())
-      const card = hasSvg ? dailySvg(f, Math.min(720, cols * 7.6)) : null
-      const isOpen = (await $.ui.panes()).some((pane: { id: string }) => pane.id === PANE)
-      const target = tk?.suggested ?? ''
-      if (!drawnOn.has(`daily:${e.surface}`)) {
-        drawnOn.add(`daily:${e.surface}`)
-        void note($, `daily update drawn on ${e.surface} (turns=${turns}, ${hasSvg ? 'picture' : 'text'}, ${Date.now() - t0} ms)`)
-      }
-      // Stack any later mod's bar under the daily update instead of hiding it.
-      const rest = await next(e)
-      return (
-        <Box flexDirection="column" gap={1}>
-          {card ? (
-            <Svg source={card.svg} alt={`Daily update. ${f.usage} ${f.chats}`} />
-          ) : (
-            // The terminal caps this bar at about ten lines: one line per topic, no border.
-            <Box flexDirection="column">
-              {dailyText(f).map((line, i, all) => (
-                <Text key={`d${i}`} color={i === 0 ? GOLD_TEXT : i === all.length - 1 ? 'subtle' : undefined} bold={i === 0}>{cut(line, Math.max(40, cols - 4))}</Text>
-              ))}
-            </Box>
-          )}
-          {mismatch ? (
-            <Box flexDirection="row" gap={1} alignItems="center">
-              <Text color={GOLD_TEXT}>This looks like {envName(target, home ?? '')} work; you're in {envName(cwd, home ?? '')}.</Text>
-              <Button key={`env:daily-switch:${tag}`} variant="primary" label={`Switch to ${cut(envName(target, home ?? ''), 18)}`} onPress={() => void sendSwitch($, target, tag)} />
-              <Button key={`env:daily-stay:${tag}`} label="Stay" onPress={() => void update($, task, x => (x ? { ...x, dismissed: true } : x))} />
-            </Box>
-          ) : null}
-          <Box flexDirection="row" gap={2}>
-            <Button key="daily:open" plain onPress={() => void (isOpen ? $.ui.close({ id: PANE }) : $.ui.open({ id: PANE, title: TITLE }))}>
-              <Text color={GOLD_TEXT}>{isOpen ? 'Hide full dashboard' : 'Open full dashboard ›'}</Text>
-            </Button>
-            <Button key="daily:hide" plain onPress={() => void update($, dailyHidden, () => true)}>
-              <Text color="subtle">Hide for this chat</Text>
-            </Button>
-          </Box>
-          {rest}
-        </Box>
-      )
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, nextHook) => {
+    // A throw here must not hide the other mods' bars: fall back to them.
+    let isNextCalled = false
+    const next = (ev: any) => {
+      isNextCalled = true
+      return nextHook(ev)
     }
-    if (!isNew && !mismatch && (running < 2 || isWorkHidden)) {
-      // Nothing urgent: one slim line with a button that shows or hides the full dashboard.
-      const isOpen = (await $.ui.panes()).some((pane: { id: string }) => pane.id === PANE)
-      const five = l?.limits.find(x => x.kind === 'five_hour')
-      const sumNow = s ? summarize(s).sum : null
-      const facts = [sumNow ? `${fmt(sumNow.all)} tokens` : '', sumNow && sumNow.fable > 0 ? `Fable ${fmt(sumNow.fable)}` : '', five ? `5-hour ${Math.round(five.percentUsed)}%` : '', running === 1 ? '1 running' : '']
-        .filter(Boolean)
-        .join(' · ')
-      return (
-        <Box flexDirection="row" gap={2} alignItems="center">
-          <Button
-            key="dash:toggle"
-            plain
-            onPress={() => void (isOpen ? $.ui.close({ id: PANE }) : $.ui.open({ id: PANE, title: TITLE }))}
-          >
-            <Text color={GOLD_TEXT}>{isOpen ? '▦ Hide dashboard' : '▦ Dashboard'}</Text>
-          </Button>
-          {facts ? <Text color="subtle">{facts}</Text> : null}
-          {isWorkHidden && running >= 2 ? (
-            <Button key="work:show" plain onPress={() => void update($, workHidden, () => false)}>
-              <Text color={GOLD_TEXT}>▴ Show working now ({running})</Text>
-            </Button>
-          ) : null}
-        </Box>
-      )
+    try {
+      return await drawAbovePrompt($, e, next, drawnOn)
+    } catch (err) {
+      void note($, `bar above the prompt failed: ${String(err).slice(0, 200)}`)
+      return isNextCalled ? null : nextHook(e)
     }
-    if (!drawnOn.has(`band:${e.surface}`)) {
-      drawnOn.add(`band:${e.surface}`)
-      void note($, `band drawn on ${e.surface} (new=${isNew}, running=${running}, mismatch=${mismatch})`)
-    }
-    const cols: number = (e as any).props?.bodyColumns ?? e.viewport?.columns ?? 90
-    const widthPx = Math.min(720, cols * 7.6)
-    const isFullOpen = (await $.ui.panes()).some((pane: { id: string }) => pane.id === PANE)
-    const openFull = (
-      <Button key="dash:open" plain onPress={() => void (isFullOpen ? $.ui.close({ id: PANE }) : $.ui.open({ id: PANE, title: TITLE }))}>
-        <Text color={GOLD_TEXT}>{isFullOpen ? 'Hide full dashboard' : 'Open full dashboard ›'}</Text>
-      </Button>
-    )
-    if (isNew) {
-      const card = hasSvg ? dashboardSvg(s, l, widthPx, wk, 'home', await read($, museum)) : null
-      return (
-        <Box flexDirection="column" gap={1}>
-          {card ? <Svg source={card.svg} alt={`Total tokens ${s ? fmt(summarize(s).sum.all) : ''}`} /> : null}
-          {await envMenu($, els)}
-          {openFull}
-        </Box>
-      )
-    }
-    const target = tk?.suggested ?? ''
-    const workCard = running >= 2 && !isWorkHidden && hasSvg ? dashboardSvg(s, l, widthPx, wk, 'work') : null
-    return (
-      <Box flexDirection="column" gap={1}>
-        {workCard ? <Svg source={workCard.svg} alt={`${running} running`} /> : running >= 2 ? <Text>{running} running</Text> : null}
-        {mismatch ? (
-          <Box flexDirection="row" gap={1} alignItems="center">
-            <Text color={GOLD_TEXT}>
-              This looks like {envName(target, home ?? '')} work; you're in {envName(cwd, home ?? '')}.
-            </Text>
-            <Button key={`env:band-switch:${tag}`} variant="primary" label={`Switch to ${cut(envName(target, home ?? ''), 18)}`} onPress={() => void sendSwitch($, target, tag)} />
-            <Button key={`env:band-stay:${tag}`} label="Stay" onPress={() => void update($, task, x => (x ? { ...x, dismissed: true } : x))} />
-          </Box>
-        ) : null}
-        <Box flexDirection="row" gap={2}>
-          {openFull}
-          {running >= 2 && !isWorkHidden ? (
-            <Button key="work:hide" plain onPress={() => void update($, workHidden, () => true)}>
-              <Text color="subtle">▾ Hide working now</Text>
-            </Button>
-          ) : null}
-        </Box>
-      </Box>
-    )
   })
 
   // The mod's own finishing turn after a direct move: answered here, instantly, with no model call.
