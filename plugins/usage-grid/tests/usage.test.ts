@@ -301,3 +301,52 @@ test('daily update: long lines end with … instead of being clipped', () => {
   expect(chatsLines[chatsLines.length - 1].includes('…')).toBe(true)
   expect(svg.includes('x'.repeat(80))).toBe(false)
 })
+
+import { chatTag, mayPress, parseSwitch, switchGate, switchPrompt, SWITCH_TTL } from '../hooks/register'
+
+test('folder switch: a message for another chat is ignored', () => {
+  const me = '7f3d1397-1042-4093-914d-829dc181f760'
+  const other = '10c63692-2e95-441b-beb6-ec02ab6929e9'
+  const t = 1_000_000
+  const mine = { sid: me, path: '/u/Documents/dash', at: t, used: false }
+  // The message names the other chat: refused even though this chat has its own request.
+  const msg = parseSwitch(switchPrompt('/u/Documents/dash', chatTag(other)))
+  expect(msg).toEqual({ path: '/u/Documents/dash', tag: chatTag(other) })
+  expect(switchGate(mine, me, msg!.tag, msg!.path, t + 1000)).toBe('wrong-chat')
+  // A request made in another chat never lets this chat move.
+  expect(switchGate({ ...mine, sid: other }, me, chatTag(me), '/u/Documents/dash', t + 1000)).toBe('wrong-chat')
+  // A different folder from the one pressed: refused.
+  expect(switchGate(mine, me, chatTag(me), '/u/Documents/gallery', t + 1000)).toBe('wrong-chat')
+  // No press in this chat at all (an old, untagged message): refused.
+  expect(switchGate(null, me, chatTag(me), '/u/Documents/dash', t)).toBe('no-request')
+  expect(parseSwitch("Switch this chat's environment to the folder /u/Documents/dash: if the tool")?.tag).toBe(null)
+  expect(switchGate(mine, me, null, '/u/Documents/dash', t)).toBe('wrong-chat')
+  // The right chat, the pressed folder, in time: goes ahead.
+  expect(switchGate(mine, me, chatTag(me), '/u/Documents/dash', t + 1000)).toBe('ok')
+  // Paths with spaces survive the round trip.
+  expect(parseSwitch(switchPrompt('/u/Library/Application Support/x y', 'abcd1234'))?.path).toBe('/u/Library/Application Support/x y')
+  expect(parseSwitch('Fix the switch button')).toBe(null)
+})
+
+test('folder switch: a double press or a repeated message is ignored', () => {
+  const me = 'aaaaaaaa-1111'
+  const t = 2_000_000
+  expect(mayPress(null, me, t)).toBe(true)
+  const req = { sid: me, path: '/u/a', at: t, used: false }
+  expect(mayPress(req, me, t + 500)).toBe(false)
+  expect(mayPress(req, me, t + SWITCH_TTL - 1)).toBe(false)
+  expect(mayPress(req, me, t + SWITCH_TTL + 1)).toBe(true)
+  // Another chat's request does not block this chat's own press.
+  expect(mayPress({ ...req, sid: 'bbbbbbbb-2222' }, me, t + 500)).toBe(true)
+  // The same message twice: the second is a duplicate.
+  expect(switchGate({ ...req, used: true }, me, chatTag(me), '/u/a', t + 2000)).toBe('duplicate')
+})
+
+test('folder switch: a request older than 30 seconds has expired', () => {
+  const me = 'cccccccc-3333'
+  const t = 3_000_000
+  const req = { sid: me, path: '/u/a', at: t, used: false }
+  expect(switchGate(req, me, chatTag(me), '/u/a', t + SWITCH_TTL)).toBe('ok')
+  expect(switchGate(req, me, chatTag(me), '/u/a', t + SWITCH_TTL + 1)).toBe('stale')
+  expect(switchGate(req, me, chatTag(me), '/u/a', t + 600000)).toBe('stale')
+})

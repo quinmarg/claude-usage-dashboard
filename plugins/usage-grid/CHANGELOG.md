@@ -1,5 +1,9 @@
 # Changelog (usage-grid)
 
+## 0.12.1 (2026-11-11)
+- Fix: chats were moved to folders nobody chose. Every chat drew its switch buttons with the same `key`, so one press could run the same-named button in other chats (each switching to its own suggested folder), and a second press sent a second switch. Now: keys carry the chat's id; a press is checked against the chat; one switch per chat per 30 s; the switch message carries the chat's id and `prompt.submit` drops it if it is for another chat, already used, or older than 30 s. Presses and drops are logged.
+- Tests: wrong chat ignored, double press / repeated message ignored, stale request expired.
+
 ## 0.12.0 (2026-11-11)
 - Daily update in the bar above the message box for the first message and first reply of every chat: usage today vs yesterday with a weekly-limit outlook, open chats (working / idle and ready), reminders, the painting on the wall and the line of the day. Buttons: Open full dashboard, Hide for this chat. Text version in the terminal.
 - Fix: the old new-chat card never showed in the desktop app (a chat only starts once the first message is sent); the daily update shows while `turns <= 1`.

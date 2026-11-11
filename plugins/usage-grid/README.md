@@ -53,3 +53,5 @@ Where the dashboard was placed in each chat is logged to `~/.claude/usage-grid.l
 - The terminal gets the same facts as plain lines.
 - Other mods' bars now stack under it instead of being hidden.
 
+## Folder switch fix (0.12.1)
+- A folder switch now happens only in the chat where you pressed the button, once, and only within 30 seconds of the press. Each chat's switch buttons have their own address, a second press within 30 s is ignored, and the switch message names its chat: any switch message that is for another chat, a repeat, or older than 30 s is dropped (and logged in `~/.claude/usage-grid.log`).

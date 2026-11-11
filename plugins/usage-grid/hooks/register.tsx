@@ -322,8 +322,7 @@ async function checkWhere($: any): Promise<void> {
       return cwd
     })
     if (moved) {
-      lastSwitch = { path: '', at: 0 }
-      $.ui.toast(`Now in ${envName(cwd, home ?? '')}.`)
+            $.ui.toast(`Now in ${envName(cwd, home ?? '')}.`)
     }
     // A switch on its way: done when the chat is there; a nudge after 20 s; given up after 2 minutes.
     const pend = await read($, pending)
@@ -1100,19 +1099,60 @@ const LAPTOP =
 const envName = (path: string, home: string): string =>
   path === home ? 'Home' : (path.replace(/\/+$/, '').split('/').pop() ?? path)
 
-// No switch to the folder the chat is already in; a double click within 4 s counts once.
-// Says at once that the switch is on its way, and why if the prompt could not be sent.
-let lastSwitch = { path: '', at: 0 }
-async function sendSwitch($: any, path: string): Promise<void> {
-  const [cwd, home] = await Promise.all([$.session.cwd(), $.env.get('HOME')])
+// ── Folder switch: one press, in the chat where it was pressed, once, within 30 s ──
+// 2026-11-11 bug: several chats moved to folders nobody chose. The switch buttons had the same
+// address (`key`) in every chat, so one press could run the same-named button in other chats, each
+// switching to its own suggested folder, and a second press sent a second switch. Now every switch
+// button's key carries its chat's id, a press is checked against this chat, each chat starts at
+// most one switch per 30 s, and the switch message itself carries the chat's id: prompt.submit
+// drops any switch message that is for another chat, already used, or older than 30 s.
+export type SwitchRequest = { sid: string; path: string; at: number; used: boolean }
+export const SWITCH_TTL = 30000
+export type SwitchVerdict = 'ok' | 'no-request' | 'wrong-chat' | 'duplicate' | 'stale'
+export const chatTag = (sid: string): string => sid.slice(0, 8)
+/** May a press start a switch in chat `sid`? Not if this chat started one in the last 30 s. */
+export const mayPress = (req: SwitchRequest | null, sid: string, now: number): boolean =>
+  !(req && req.sid === sid && now - req.at < SWITCH_TTL)
+/** May a switch message for `path`, tagged `tag`, go ahead in chat `sid`? */
+export const switchGate = (req: SwitchRequest | null, sid: string, tag: string | null, path: string, now: number): SwitchVerdict => {
+  if (tag !== chatTag(sid)) return 'wrong-chat'
+  if (!req) return 'no-request'
+  if (req.sid !== sid || req.path !== path) return 'wrong-chat'
+  if (now - req.at > SWITCH_TTL) return 'stale'
+  if (req.used) return 'duplicate'
+  return 'ok'
+}
+/** "Switch this chat's environment to [the folder] <path> [chat 1a2b3c4d]…" → path and tag. */
+export const parseSwitch = (text: string): { path: string; tag: string | null } | null => {
+  if (!text.startsWith(SWITCH_MARK)) return null
+  const m = /^Switch this chat's environment to (?:the folder )?(.+?) \[chat ([0-9a-f-]{1,8})\]/.exec(text)
+  if (m) return { path: m[1], tag: m[2] }
+  const old = /^Switch this chat's environment to (?:the folder )?(\/[^:]+?)(?::| \(| $)/.exec(text)
+  return { path: old ? old[1] : '', tag: null }
+}
+const switchReqs = new Map<string, SwitchRequest>()
+
+// No switch to the folder the chat is already in. Says at once that the switch is on its way,
+// and why if the prompt could not be sent. `pressedIn` is the tag of the chat whose button was pressed.
+async function sendSwitch($: any, path: string, pressedIn: string): Promise<void> {
+  const [cwd, home, sid] = await Promise.all([$.session.cwd(), $.env.get('HOME'), $.session.id()])
   const name = envName(path, home ?? '')
   const now = Date.now()
+  if (pressedIn !== chatTag(sid)) {
+    void note($, `switch press for chat ${pressedIn} ignored here (to ${path})`)
+    return
+  }
   if (path === cwd) {
     $.ui.toast(`Already in ${name}.`)
     return
   }
-  if (path === lastSwitch.path && now - lastSwitch.at < 4000) return
-  lastSwitch = { path, at: now }
+  if (!mayPress(switchReqs.get(sid) ?? null, sid, now)) {
+    void note($, `second switch press within 30 s ignored (to ${path})`)
+    return
+  }
+  switchReqs.set(sid, { sid, path, at: now, used: false })
+  void note($, `switch pressed: to ${path}`)
+  const tag = chatTag(sid)
   await update($, pending, () => ({ path, at: now, nagged: false }))
   $.ui.toast(`Switching to ${name}…`)
   // Fast path: the mod calls the app's move tool itself, with the press as consent: no Claude reply.
@@ -1138,13 +1178,13 @@ async function sendSwitch($: any, path: string): Promise<void> {
       $.clock.after(250, () => {
         void (async () => {
           if ((await $.session.cwd()) === path) return
-          void $.prompt.submit({ text: `${SWITCH_MARK} ${path} ${DONE_MARK}` })
+          void $.prompt.submit({ text: `${SWITCH_MARK} ${path} [chat ${tag}] ${DONE_MARK}` })
         })()
       })
       return
     }
     try {
-      const r: any = await $.prompt.submit({ text: switchPrompt(path) })
+      const r: any = await $.prompt.submit({ text: switchPrompt(path, tag) })
       if (r && typeof r.deny === 'string') {
         void update($, pending, () => null)
         $.ui.toast(`Couldn't switch to ${name}: ${r.deny}`)
@@ -1157,8 +1197,8 @@ async function sendSwitch($: any, path: string): Promise<void> {
 }
 
 // The app's tool is often deferred (not loaded yet), so the prompt says how to load it.
-const switchPrompt = (path: string) =>
-  `${SWITCH_MARK} the folder ${path}: if the tool mcp__ccd_directory__change_directory is not loaded, load it with ToolSearch (query "select:mcp__ccd_directory__change_directory"), then call it with that exact path, nothing else, and confirm in one short line.`
+export const switchPrompt = (path: string, tag: string) =>
+  `${SWITCH_MARK} the folder ${path} [chat ${tag}]: if the tool mcp__ccd_directory__change_directory is not loaded, load it with ToolSearch (query "select:mcp__ccd_directory__change_directory"), then call it with that exact path, nothing else, and confirm in one short line.`
 const CHOOSE_PROMPT =
   'Let me choose a different environment folder for this chat. If they are not loaded, load the tools with ToolSearch (query "select:mcp__ccd_directory__request_directory,mcp__ccd_directory__change_directory"). Call request_directory with no path so I can pick a folder, then call change_directory with the exact folder it granted, so the chat moves there. Nothing else; confirm in one short line.'
 
@@ -1172,9 +1212,11 @@ async function envMenu($: any, els: any) {
   const suggested = tk && !tk.dismissed ? tk.suggested : null
   const pend = await read($, pending)
   const switching = pend && pend.path !== cwd ? pend.path : null
+  // Every key carries this chat's tag, so a press can only reach this chat's button.
+  const tag = chatTag(await $.session.id())
   // A press must return within 10 s: send the prompt and do not wait for its turn.
   const go = (path: string) => {
-    void sendSwitch($, path)
+    void sendSwitch($, path, tag)
   }
   const name = (p: string) => envName(p, home ?? '')
   return (
@@ -1189,7 +1231,7 @@ async function envMenu($: any, els: any) {
         <Box flexDirection="column" gap={1}>
           <Text color={GOLD_TEXT}>This task fits {name(suggested)} better than {name(cwd)}.</Text>
           <Box flexDirection="row">
-            <Button key="env:suggested" variant="primary" label={`Switch to ${cut(name(suggested), 18)}`} onPress={() => go(suggested)} />
+            <Button key={`env:suggested:${tag}`} variant="primary" label={`Switch to ${cut(name(suggested), 18)}`} onPress={() => go(suggested)} />
           </Box>
         </Box>
       ) : (
@@ -1201,7 +1243,7 @@ async function envMenu($: any, els: any) {
             {/* The name side grows and shortens; the ✓ keeps its own fixed column at the right. */}
             <Box flexDirection="row" alignItems="center" gap={1} flexGrow={1} flexShrink={1} overflow="hidden">
               <Svg source={LAPTOP} alt="folder" width={18} height={18} />
-              <Button key={`env:${env.path}`} plain onPress={() => (env.path === cwd ? undefined : go(env.path))}>
+              <Button key={`env:${tag}:${env.path}`} plain onPress={() => (env.path === cwd ? undefined : go(env.path))}>
                 {cut(name(env.path), 24)}
                 {env.path === switching ? (
                   <Text color={GOLD_TEXT}> · switching…</Text>
@@ -1219,7 +1261,7 @@ async function envMenu($: any, els: any) {
         ))}
       </Box>
       <Box flexDirection="row" marginTop={1}>
-        <Button key="env:choose" plain onPress={() => void $.prompt.submit({ text: CHOOSE_PROMPT })}>
+        <Button key={`env:choose:${tag}`} plain onPress={() => void $.prompt.submit({ text: CHOOSE_PROMPT })}>
           <Text color={GOLD_TEXT}>Choose environment ⌄</Text>
         </Button>
       </Box>
@@ -1336,6 +1378,18 @@ export const register: Register = on => {
   let isRowSure = false
   on('prompt.submit', async ($, e, next) => {
     const text = e.text ?? ''
+    // A folder-switch message only goes ahead in the chat it was pressed in, once, within 30 s.
+    const sw = parseSwitch(text)
+    if (sw) {
+      const sid = await $.session.id()
+      const req = switchReqs.get(sid) ?? null
+      const verdict = switchGate(req, sid, sw.tag, sw.path, Date.now())
+      if (verdict !== 'ok') {
+        void note($, `switch message dropped (${verdict}): ${sw.path}`)
+        return { drop: `Folder switch not sent (${verdict === 'wrong-chat' ? 'it was for another chat' : verdict === 'duplicate' ? 'already sent' : verdict === 'stale' ? 'older than 30 seconds' : 'no button was pressed in this chat'}).` } as any
+      }
+      if (req) switchReqs.set(sid, { ...req, used: true })
+    }
     if (text.includes(DONE_MARK)) answerNextStep = true
     if (!e.isMeta && !e.command && !text.startsWith(SWITCH_MARK) && !text.startsWith(CHOOSE_PROMPT.slice(0, 30))) {
       const s = await read($, stats)
@@ -1359,6 +1413,7 @@ export const register: Register = on => {
     const cwd = w0 || (await $.session.cwd())
     const els = $.ui.resolve(e)
     const { Box, Button, Text } = els
+    const tag = chatTag(await $.session.id())
     const hasSvg = e.surface !== 'terminal' && 'Svg' in els
     const Svg = (els as any).Svg
     const isNew = turns === 0
@@ -1394,8 +1449,8 @@ export const register: Register = on => {
           {mismatch ? (
             <Box flexDirection="row" gap={1} alignItems="center">
               <Text color={GOLD_TEXT}>This looks like {envName(target, home ?? '')} work; you're in {envName(cwd, home ?? '')}.</Text>
-              <Button key="env:daily-switch" variant="primary" label={`Switch to ${cut(envName(target, home ?? ''), 18)}`} onPress={() => void sendSwitch($, target)} />
-              <Button key="env:daily-stay" label="Stay" onPress={() => void update($, task, x => (x ? { ...x, dismissed: true } : x))} />
+              <Button key={`env:daily-switch:${tag}`} variant="primary" label={`Switch to ${cut(envName(target, home ?? ''), 18)}`} onPress={() => void sendSwitch($, target, tag)} />
+              <Button key={`env:daily-stay:${tag}`} label="Stay" onPress={() => void update($, task, x => (x ? { ...x, dismissed: true } : x))} />
             </Box>
           ) : null}
           <Box flexDirection="row" gap={2}>
@@ -1468,8 +1523,8 @@ export const register: Register = on => {
             <Text color={GOLD_TEXT}>
               This looks like {envName(target, home ?? '')} work; you're in {envName(cwd, home ?? '')}.
             </Text>
-            <Button key="env:band-switch" variant="primary" label={`Switch to ${cut(envName(target, home ?? ''), 18)}`} onPress={() => void sendSwitch($, target)} />
-            <Button key="env:band-stay" label="Stay" onPress={() => void update($, task, x => (x ? { ...x, dismissed: true } : x))} />
+            <Button key={`env:band-switch:${tag}`} variant="primary" label={`Switch to ${cut(envName(target, home ?? ''), 18)}`} onPress={() => void sendSwitch($, target, tag)} />
+            <Button key={`env:band-stay:${tag}`} label="Stay" onPress={() => void update($, task, x => (x ? { ...x, dismissed: true } : x))} />
           </Box>
         ) : null}
         <Box flexDirection="row" gap={2}>
