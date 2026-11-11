@@ -68,16 +68,16 @@ test('dashboard svg: total at the top, every section, sized to the pane', () => 
   expect(narrow.width).toBe(420)
   expect(narrow.svg.startsWith('<svg')).toBe(true)
   expect(narrow.svg.endsWith('</svg>')).toBe(true)
-  for (const part of ['Total tokens', 'Activity', 'Last 14 days', 'Working now', 'Models', 'Recommendations', '5-hour', 'Weekly', 'This chat']) {
+  for (const part of ['TOTAL TOKENS', 'Activity', 'Last 14 days', 'Working now', 'Models', 'Recommendations', '5-hour', 'Weekly', 'This chat']) {
     expect(narrow.svg.includes(part)).toBe(true)
   }
-  expect(narrow.svg.indexOf('Total tokens')).toBeLessThan(narrow.svg.indexOf('Activity'))
+  expect(narrow.svg.indexOf('TOTAL TOKENS')).toBeLessThan(narrow.svg.indexOf('Activity'))
   expect(narrow.svg.includes('Fix &lt;bug&gt; &amp; ship')).toBe(true)
   expect(narrow.svg.includes('<bug>')).toBe(false)
   expect(narrow.svg.length).toBeLessThan(131072)
   // A wide pane shows more weeks in the activity rectangle.
   const wide = dashboardSvg(stats, l, 860, wk)
-  const weeksOf = (svg: string) => Number(/last (\d+) weeks/.exec(svg)?.[1])
+  const weeksOf = (svg: string) => Number(/last (\d+) weeks/i.exec(svg)?.[1])
   expect(weeksOf(wide.svg)).toBeGreaterThan(weeksOf(narrow.svg))
   expect(dashboardSvg(null, null, 420).svg.includes('Reading your Claude Code logs')).toBe(true)
 })
@@ -104,10 +104,10 @@ test('work card moves to the top while anything runs', () => {
   const busy = { ...EMPTY_WORK, main: { busy: true, since: live.now - 60000, tools: 2, lastTool: 'Bash ls' } }
   const top = dashboardSvg(stats, live, 420, busy).svg
   expect(top.includes('Working now')).toBe(true)
-  expect(top.indexOf('Working now')).toBeLessThan(top.indexOf('Total tokens'))
+  expect(top.indexOf('Working now')).toBeLessThan(top.indexOf('TOTAL TOKENS'))
   const idle = dashboardSvg(stats, live, 420, EMPTY_WORK).svg
   expect(idle.includes('Nothing running right now')).toBe(true)
-  expect(idle.indexOf('Total tokens')).toBeLessThan(idle.indexOf('Nothing running'))
+  expect(idle.indexOf('TOTAL TOKENS')).toBeLessThan(idle.indexOf('Nothing running'))
 })
 
 test('suggests the folder a task fits, only when it is clear', () => {
@@ -130,14 +130,14 @@ test('suggests the folder a task fits, only when it is clear', () => {
 test('front card (new chat) and work card (busy) are compact cuts of the dashboard', () => {
   const busy = { ...EMPTY_WORK, main: { busy: true, since: live.now - 60000, tools: 2, lastTool: 'Bash ls' }, agents: [{ id: 'a', name: 'Helper', type: 'mid-worker', model: '', status: 'running', startedAt: live.now - 30000, endedAt: null, tools: 1, lastTool: '' }] }
   const home = dashboardSvg(stats, live, 600, busy, 'home').svg
-  expect(home.includes('Total tokens')).toBe(true)
+  expect(home.includes('TOTAL TOKENS')).toBe(true)
   expect(home.includes('Working now')).toBe(true)
   expect(home.includes('Activity')).toBe(false)
   expect(home.includes('Recommendations')).toBe(false)
   const work = dashboardSvg(stats, { ...live, title: 'Weekly report' }, 600, busy, 'work').svg
   expect(work.includes('Working now')).toBe(true)
   expect(work.includes('Weekly report')).toBe(true)
-  expect(work.includes('Total tokens')).toBe(false)
+  expect(work.includes('TOTAL TOKENS')).toBe(false)
   expect(work.includes('CLAUDE CODE')).toBe(false)
 })
 
@@ -170,8 +170,8 @@ test('the live top and the slow body are separate pictures', () => {
   const top = dashboardSvg(stats, live, 600, busy, 'top').svg
   const body = dashboardSvg(stats, live, 600, busy, 'body').svg
   expect(top.includes('Working now')).toBe(true)
-  expect(top.includes('Total tokens')).toBe(false)
-  expect(body.includes('Total tokens')).toBe(true)
+  expect(top.includes('TOTAL TOKENS')).toBe(false)
+  expect(body.includes('TOTAL TOKENS')).toBe(true)
   expect(body.includes('Working now')).toBe(false)
   expect(body.includes('CLAUDE CODE')).toBe(false)
   // the body does not change when only the clock or the work moves on
@@ -191,4 +191,55 @@ test('hero mini stats: every value fits its column, even long Fable totals', () 
     })
     expect(w[0]).toBeGreaterThan(w[3])  // the Fable column is wider than Days
   }
+})
+
+import { addDays, quoteFor, QUOTES } from '../hooks/register'
+
+test('museum cards: the painting as a wall label, reminders, and a line of the day', () => {
+  const mu = { wall: { title: 'Ulysses Deriding Polyphemus', artist: 'J.M.W. Turner', year: '1829', room: 'Odyssey' }, reminders: ['Run the widgets install.sh', 'Allow Accessibility for <Window Border>'] }
+  for (const width of [380, 560, 760]) {
+    const home = dashboardSvg(stats, live, width, EMPTY_WORK, 'home', mu).svg
+    expect(home.includes('ON YOUR WALL')).toBe(true)
+    expect(home.includes('Ulysses Deriding Polyphemus')).toBe(true)
+    expect(home.includes('J.M.W. Turner · 1829')).toBe(true)
+    expect(home.includes('For you today')).toBe(true)
+    expect(home.includes('2 REMINDERS')).toBe(true)
+    expect(home.includes('&lt;Window Border&gt;')).toBe(true)
+    expect(home.indexOf('TOTAL TOKENS')).toBeLessThan(home.indexOf('ON YOUR WALL'))
+    expect(home.includes('Activity')).toBe(false)
+  }
+  // No reminders: says so; no museum data yet: the cards wait instead of claiming "all clear".
+  const clear = dashboardSvg(stats, live, 560, EMPTY_WORK, 'home', { wall: null, reminders: [] }).svg
+  expect(clear.includes('all clear'.toUpperCase())).toBe(true)
+  expect(clear.includes('ON YOUR WALL')).toBe(false)
+  expect(dashboardSvg(stats, live, 560, EMPTY_WORK, 'home').svg.includes('For you today')).toBe(false)
+  // More than four reminders: four shown and a count.
+  const many = dashboardSvg(stats, live, 560, EMPTY_WORK, 'body', { wall: null, reminders: ['a', 'b', 'c', 'd', 'e', 'f'] }).svg
+  expect(many.includes('+2 more')).toBe(true)
+})
+
+test('line of the day: one per day, same all day, cycles through the list', () => {
+  expect(quoteFor('2026-11-11')).toEqual(quoteFor('2026-11-11'))
+  expect(quoteFor('2026-11-11')).not.toEqual(quoteFor('2026-11-12'))
+  const seen = new Set(Array.from({ length: QUOTES.length }, (_, i) => quoteFor(addDays('2026-01-01', i))[0]))
+  expect(seen.size).toBe(QUOTES.length)
+  const svg = dashboardSvg(stats, live, 380, EMPTY_WORK, 'body', { wall: null, reminders: [] }).svg
+  expect(svg.includes(esc(quoteFor(stats.today)[1]))).toBe(true)
+})
+
+test('the look is Museum + glass: gold accent, Baskerville, no iOS blue', () => {
+  const svg = dashboardSvg(stats, live, 560, EMPTY_WORK, 'full', { wall: null, reminders: [] }).svg
+  expect(svg.includes('#C9A45C')).toBe(true)
+  expect(svg.includes('Baskerville')).toBe(true)
+  expect(svg.includes('#EFE6D2')).toBe(true)
+  for (const blue of ['#007aff', '#0a84ff', '#5e5ce6']) expect(svg.includes(blue)).toBe(false)
+})
+
+test('limits warn with a sign as well as a colour, like the desktop widget', () => {
+  const hot = { ...live, limits: [{ kind: 'five_hour', percentUsed: 93, resetsAt: null }, { kind: 'seven_day', percentUsed: 74, resetsAt: null }] }
+  const svg = dashboardSvg(stats, hot, 560, EMPTY_WORK, 'body', null).svg
+  expect(svg.includes('‼ limit')).toBe(true)
+  expect(svg.includes('▲ limit')).toBe(true)
+  expect(svg.includes('#C8452E')).toBe(true)
+  expect(svg.includes('#E58A3A')).toBe(true)
 })

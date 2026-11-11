@@ -1,6 +1,6 @@
 # usage-grid
 
-A Claude Code mod with an iOS-style dashboard.
+A Claude Code mod with a Museum + glass dashboard: see-through cards with a thin gold edge, Baskerville for the big total and the card titles, gold `#C9A45C` as the only accent and parchment `#EFE6D2` text in dark mode. It follows the app's light and dark themes.
 
 **On a new chat** (before your first message) a card sits right above the message box: date, total tokens, anything running, and the environment menu, with *Open full dashboard*; the full dashboard also opens in the side pane. **After that** the bar above the message box only returns when it matters: your task fits another folder, or two or more things are running. (The desktop app does not draw rows inside the transcript yet, so the bar above the message box is the front.)
 
@@ -20,7 +20,7 @@ Install (in a terminal Claude Code session):
 /plugin install usage-grid --marketplace quinmarg/claude-usage-dashboard
 ```
 
-Test: `claude plugin test .` · Check: `claude plugin validate .`
+Test: `claude plugin test .` and `python3 -m unittest discover -s tests -p 'test_*.py'` · Check: `claude plugin validate .`
 
 Where the dashboard was placed in each chat is logged to `~/.claude/usage-grid.log` (last 200 lines).
 
@@ -36,3 +36,13 @@ Where the dashboard was placed in each chat is logged to `~/.claude/usage-grid.l
 ## Faster environment switching (0.9.0, 0.9.1)
 - Pressing a folder in the environment menu moves the chat right away: the mod calls the app's move tool itself (your press is the consent), so no Claude reply is needed. The ✓ moves within a few seconds.
 - If the app only applies the move when a turn ends, the mod ends a marked turn after 250 ms and answers it itself ("Moved.") with no model call (0.9.1), so the switch is near-instant. If the direct call is refused, it falls back to asking Claude to make the move, as before.
+
+## Museum + glass look (0.11.0)
+- New look everywhere the dashboard draws (new-chat card, `/dashboard` pane, environment menu, terminal colours). Same layout order as before ("Gallery wall"); numbers and every file in `~/.claude/usage-grid/` are unchanged, so the desktop widget and the notch app read them as before.
+- **On your wall**: the painting that is your desktop picture right now, as a museum label (title, artist, year, and the `~/Pictures/Paintings/<Room>` it comes from). Paintings are named `Title, Artist (Year).jpg`.
+- **For you today**: things Claude needs to remind you of, from the Obsidian note `40 Personal/Reminders from Claude.md` (every unticked `- [ ]` line; up to four shown), and a **line of the day** from the classics (Homer, Virgil, Seneca, Marcus Aurelius, Dante and others; built in, one per day).
+- `/remind` lists reminders, `/remind <text>` adds one, `/remind done <n>` ticks one. Any Claude chat can also add a line to the note directly.
+- Both are read by `hooks/museum.py` every 3 minutes (no internet; the painting comes from System Events).
+- Limits warn with a sign as well as a colour: ▲ from 70% (amber), ‼ from 90% (deep red), the same as the desktop widget.
+- Roll back: git tag `usage-grid-v0.10.2` has the previous (iOS-style) version.
+

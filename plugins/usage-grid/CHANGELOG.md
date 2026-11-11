@@ -1,5 +1,12 @@
 # Changelog (usage-grid)
 
+## 0.11.0 (2026-11-11)
+- Museum + glass look: translucent cards with a gold hairline and a top highlight, Baskerville for the total, the date and card titles, small-caps labels, gold `#C9A45C` as the only accent (rings, sparkline, heat map, bars, models, badges), parchment `#EFE6D2` text in dark mode. No more iOS blue.
+- New cards: **On your wall** (the desktop painting as a museum label) and **For you today** (reminders from the Obsidian note "Reminders from Claude" + a classical line of the day). `/remind` lists, adds and ticks reminders. Read by the new `hooks/museum.py`.
+- Limit warnings match the desktop widget: amber `#E58A3A` with ▲ from 70%, deep red `#C8452E` with ‼ from 90%.
+- Environment menu, dashboard button and terminal view use the gold accent.
+- Data formats unchanged (`stats.json`, `limits.json`, `work/*.json`). Previous version tagged `usage-grid-v0.10.2`.
+
 ## 0.10.2 (2026-11-10)
 - Hero mini stats and the Today strip are centered in their columns; the Fable highlight is sized to its text and centered on it at every width.
 - Today strip columns are sized to their text (short labels, "vs avg"), so nothing overlaps or gets cut off; numbers are a little bigger in wide panes.

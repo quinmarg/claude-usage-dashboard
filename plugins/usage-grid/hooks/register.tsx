@@ -22,7 +22,7 @@ const pending = atom({ plugin: 'usage-grid', key: 'pending' } as const, null, { 
 const workHidden = atom({ plugin: 'usage-grid', key: 'workHidden' } as const, false)
 
 // Empty day, then four steps light to heavy. Chosen to read on dark and light panes.
-const RAMP = ['#3a4048', '#2f5a8a', '#3f7fc4', '#5fa3e8', '#9fd0ff']
+const RAMP = ['#4a4438', '#6e5d3c', '#957a45', '#C9A45C', '#E6CC8F']
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const ACTIVE = new Set(['pending', 'running', 'waiting'])
@@ -413,13 +413,89 @@ async function refreshLive($: Engine): Promise<void> {
   }
 }
 
-// ───────────────────────── iOS-style dashboard (desktop, phone, editor) ─────────────────────────
+// ───────────────────────── Museum cards: the painting on the wall, reminders, a line of the day ─────────────────────────
+
+export type Wall = { title: string; artist: string; year: string; room: string }
+export type Museum = { wall: Wall | null; reminders: string[] }
+const museum = atom({ plugin: 'usage-grid', key: 'museum' } as const, null as Museum | null, { shape: 'museum-1' })
+
+/** Reads the desktop painting and the open reminders (hooks/museum.py); writes only when they change. */
+async function refreshMuseum($: any, args: string[] = ['show']): Promise<{ ok: boolean; reminders: string[] } | null> {
+  try {
+    const ran = await $.process.run(['python3', '-I', `${$.plugin.root}/hooks/museum.py`, ...args], { timeoutMs: 12000 })
+    const got = JSON.parse(ran.stdout) as { ok: boolean; wall: Wall | null; reminders: string[] }
+    await update($, museum, old => {
+      // add/done don't look at the wall again: keep the last one.
+      const next: Museum = { wall: args[0] === 'show' ? got.wall : old?.wall ?? null, reminders: got.reminders ?? [] }
+      return old && JSON.stringify(old) === JSON.stringify(next) ? old : next
+    })
+    return { ok: got.ok, reminders: got.reminders ?? [] }
+  } catch {
+    return null
+  }
+}
+
+/** One short line from the classics per day (public-domain sources), the same all day. */
+export const QUOTES: [string, string][] = [
+  ['Tell me, O Muse, of that ingenious hero who travelled far and wide.', 'Homer, Odyssey'],
+  ['Sing, O goddess, the anger of Achilles son of Peleus.', 'Homer, Iliad'],
+  ['Light is the task where many share the toil.', 'Homer, Iliad'],
+  ['Work is no disgrace; it is idleness which is a disgrace.', 'Hesiod, Works and Days'],
+  ['No man ever steps in the same river twice.', 'Heraclitus'],
+  ['Character is destiny.', 'Heraclitus'],
+  ['The unexamined life is not worth living.', 'Socrates, in Plato’s Apology'],
+  ['The beginning is the most important part of the work.', 'Plato, Republic'],
+  ['Well begun is half done.', 'Aristotle, Politics'],
+  ['The roots of education are bitter, but the fruit is sweet.', 'Aristotle'],
+  ['Fortune favours the bold.', 'Virgil, Aeneid'],
+  ['Perhaps one day it will please us to remember even these things.', 'Virgil, Aeneid'],
+  ['They can, because they think they can.', 'Virgil, Aeneid'],
+  ['Love conquers all.', 'Virgil, Eclogues'],
+  ['Seize the day, trusting as little as possible in tomorrow.', 'Horace, Odes'],
+  ['He who has begun is half done. Dare to be wise.', 'Horace, Epistles'],
+  ['Be patient and tough; some day this pain will be useful to you.', 'Ovid, Amores'],
+  ['Dripping water hollows out stone.', 'Ovid, Letters from Pontus'],
+  ['To be ignorant of what happened before you were born is to remain always a child.', 'Cicero, Orator'],
+  ['If you have a garden and a library, you have everything you need.', 'Cicero'],
+  ['While we are postponing, life speeds by.', 'Seneca, Letters'],
+  ['It is not that we have a short time to live, but that we waste a lot of it.', 'Seneca, On the Shortness of Life'],
+  ['As long as you live, keep learning how to live.', 'Seneca, Letters'],
+  ['Difficulties strengthen the mind, as labour does the body.', 'Seneca'],
+  ['No great thing is created suddenly.', 'Epictetus, Discourses'],
+  ['First say to yourself what you would be; and then do what you have to do.', 'Epictetus, Discourses'],
+  ['It is impossible to begin to learn what one thinks one already knows.', 'Epictetus, Discourses'],
+  ['Waste no more time arguing about what a good man should be. Be one.', 'Marcus Aurelius, Meditations'],
+  ['What stands in the way becomes the way.', 'Marcus Aurelius, Meditations'],
+  ['Very little is needed to make a happy life.', 'Marcus Aurelius, Meditations'],
+  ['The mind is not a vessel to be filled, but a fire to be kindled.', 'Plutarch, On Listening'],
+  ['Practice is the best of all instructors.', 'Publilius Syrus'],
+  ['Without labour nothing prospers.', 'Sophocles'],
+  ['There is nothing impossible to him who will try.', 'Alexander the Great'],
+  ['In this sign, conquer.', 'Constantine'],
+  ['Justice is the constant and perpetual will to give each his due.', 'Justinian, Institutes'],
+  ['Consider your origin: you were not made to live as brutes, but to follow virtue and knowledge.', 'Dante, Inferno'],
+  ['The love that moves the sun and the other stars.', 'Dante, Paradiso'],
+  ['It is better to offer no excuse than a bad one.', 'George Washington'],
+]
+
+export const quoteFor = (iso: string): [string, string] => {
+  const day = Math.floor(toDate(iso).getTime() / 864e5)
+  return QUOTES[((day % QUOTES.length) + QUOTES.length) % QUOTES.length]
+}
+
+// ───────────────────────── Museum + glass dashboard (desktop, phone, editor) ─────────────────────────
 
 const LONG_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const LONG_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-const RED = '#ff3b30'
-const ORANGE = '#ff9500'
-const GREEN = '#34c759'
+// Museum + glass: gold is the only accent; warnings are warm (amber, terracotta), done is sage.
+export const GOLD = '#C9A45C'
+/** Gold for text drawn outside the SVG (Ink), readable on both the light and the dark app. */
+const GOLD_TEXT = '#B8954F'
+// Same warning strokes as the desktop widget (claude-widgets 2.0): amber at 70%, deep red at 90%.
+const RED = '#C8452E'
+const ORANGE = '#E58A3A'
+const GREEN = '#7E9A6A'
+const SERIF = `Baskerville,"Libre Baskerville","Baskerville Old Face",Georgia,serif`
 
 export const esc = (t: string): string =>
   t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -447,21 +523,27 @@ const timeText = (ms: number): string => {
 }
 const severity = (pct: number | null): string | null => (pct == null ? null : pct >= 90 ? RED : pct >= 70 ? ORANGE : null)
 
+// Light: warm white glass, ink text. Dark: smoked glass, parchment (#EFE6D2) text. Gold #C9A45C throughout;
+// on light, gold TEXT is darkened (#9A7A3A) so it stays readable. Shapes keep the true gold.
 const STYLE = `
 text{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;font-variant-numeric:tabular-nums}
-.card{fill:#ffffff;fill-opacity:.78}
-.t1{fill:#1c1c1e}.t2{fill:#8a8a8e}
-.accent,.heat,.bar,.dot,.mfill{fill:#007aff}
-.empty{fill:#e5e5ea}.track{stroke:#e5e5ea}.ringfg{stroke:#007aff}.sepl{stroke:#e5e5ea}.mtrack{fill:#e5e5ea}
-.pill{fill:#007aff;fill-opacity:.12}
+.serif{font-family:${SERIF};font-variant-numeric:lining-nums}
+.card{fill:#ffffff;fill-opacity:.55;stroke:${GOLD};stroke-opacity:.30;stroke-width:1}
+.hl{stroke:#ffffff;stroke-opacity:.95;stroke-width:1;fill:none}
+.t1{fill:#2B2620}.t2{fill:#7A705F}
+.accent{fill:#9A7A3A}
+.heat,.bar,.dot,.mfill,.gfill{fill:${GOLD}}.gline{stroke:${GOLD}}
+.empty{fill:#2B2620;fill-opacity:.08}.track{stroke:#2B2620;stroke-opacity:.09}.ringfg{stroke:${GOLD}}.sepl{stroke:#2B2620;stroke-opacity:.12}.mtrack{fill:#2B2620;fill-opacity:.08}
+.pill{fill:${GOLD};fill-opacity:.16}
 @media (prefers-color-scheme:dark){
-.card{fill:#1c1c1e;fill-opacity:.72}
-.t1{fill:#f2f2f7}.t2{fill:#98989f}
-.accent,.heat,.bar,.dot,.mfill{fill:#0a84ff}
-.empty{fill:#2c2c2e}.track{stroke:#2c2c2e}.ringfg{stroke:#0a84ff}.sepl{stroke:#2c2c2e}.mtrack{fill:#2c2c2e}
-.pill{fill:#0a84ff;fill-opacity:.2}
+.card{fill:#1A1814;fill-opacity:.55;stroke-opacity:.32}
+.hl{stroke:#EFE6D2;stroke-opacity:.18}
+.t1{fill:#EFE6D2}.t2{fill:#A99F8B}
+.accent{fill:${GOLD}}
+.empty{fill:#EFE6D2;fill-opacity:.10}.track{stroke:#EFE6D2;stroke-opacity:.12}.sepl{stroke:#EFE6D2;stroke-opacity:.12}.mtrack{fill:#EFE6D2;fill-opacity:.10}
+.pill{fill:${GOLD};fill-opacity:.18}
 }
-.cell:hover{stroke:#8a8a8e;stroke-width:1.5}
+.cell:hover{stroke:${GOLD};stroke-width:1.5}
 `
 
 /**
@@ -470,7 +552,7 @@ text{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text"
  */
 export type SvgMode = 'full' | 'home' | 'work' | 'top' | 'body'
 
-export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: Work | null = null, mode: SvgMode = 'full'): { svg: string; width: number; height: number } => {
+export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: Work | null = null, mode: SvgMode = 'full', m: Museum | null = null): { svg: string; width: number; height: number } => {
   const W = Math.round(Math.min(900, Math.max(340, width)))
   const P = 16
   const CW = W - 2 * P
@@ -484,8 +566,8 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
     `<style>${STYLE}</style>` +
-    `<defs><linearGradient id="hero" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0a84ff"/><stop offset=".55" stop-color="#3d6ff0"/><stop offset="1" stop-color="#5e5ce6"/></linearGradient>` +
-    `<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="7" flood-color="#000" flood-opacity=".07"/></filter></defs>` +
+    `<defs><linearGradient id="spark" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${GOLD}" stop-opacity=".28"/><stop offset="1" stop-color="${GOLD}" stop-opacity="0"/></linearGradient>` +
+    `<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="8" flood-color="#000" flood-opacity=".06"/></filter></defs>` +
     out.join('') +
     `</svg>`
   return { svg, width: W, height: H }
@@ -493,18 +575,23 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
 
   const T = (x: number, ty: number, str: string, cls: string, size: number, weight = 400, anchor = 'start', extra = '') =>
     `<text x="${x.toFixed(1)}" y="${ty.toFixed(1)}" class="${cls}" font-size="${size}" font-weight="${weight}" text-anchor="${anchor}" ${extra}>${esc(str)}</text>`
+  // A glass card: translucent fill, a gold hairline edge, and a bright line along the top like light on glass.
   const card = (x: number, cy: number, w: number, h: number) =>
-    `<rect x="${x}" y="${cy}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="20" class="card" filter="url(#sh)"/>`
+    `<rect x="${x + 0.5}" y="${cy + 0.5}" width="${(w - 1).toFixed(1)}" height="${(h - 1).toFixed(1)}" rx="18" class="card" filter="url(#sh)"/>` +
+    `<path d="M${(x + 18).toFixed(1)} ${(cy + 1.5).toFixed(1)}H${(x + w - 18).toFixed(1)}" class="hl"/>`
+  const caps = (x: number, ty: number, str: string, cls = 't2', anchor = 'start') =>
+    T(x, ty, str.toUpperCase(), cls, 10, 600, anchor, 'letter-spacing="1.4"')
+  // Card titles are set in Baskerville, like a gallery label; the small note on the right in small caps.
   const title = (x: number, cy: number, str: string, sub?: string, right?: number) =>
-    T(x + 18, cy + 32, str, 't1', 17, 700) + (sub && right ? T(right - 18, cy + 32, sub, 't2', 12, 500, 'end') : '')
+    T(x + 18, cy + 33, str, 't1 serif', 19, 400) + (sub && right ? caps(right - 18, cy + 31, sub, 't2', 'end') : '')
 
-  // Header: date and time, like the top of an iOS widget page.
+  // Header: date in serif and the time in gold, like the top of a gallery guide.
   const now = new Date(nowMs)
   const dateLong = `${LONG_DAYS[now.getDay()]}, ${LONG_MONTHS[now.getMonth()]} ${now.getDate()}`
   if (mode !== 'work' && mode !== 'body') {
-  out.push(T(P + 4, y + 14, 'CLAUDE CODE', 't2', 12, 600, 'start', 'letter-spacing="1.4"'))
-  out.push(T(P + 4, y + 46, dateLong, 't1', wide ? 30 : 26, 800))
-  out.push(T(W - P - 4, wide ? y + 46 : y + 14, timeText(nowMs), 'accent', wide ? 30 : 13, wide ? 300 : 600, 'end'))
+  out.push(caps(P + 4, y + 14, 'Claude Code'))
+  out.push(T(P + 4, y + 46, dateLong, 't1 serif', wide ? 30 : 26, 400))
+  out.push(T(W - P - 4, wide ? y + 46 : y + 14, timeText(nowMs), 'accent', wide ? 24 : 12, wide ? 300 : 600, 'end', wide ? '' : 'letter-spacing="1"'))
   y += 64
   }
 
@@ -515,7 +602,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     56 + (busy ? Math.min(8, rows.running.length) * 48 : 30) + (rows.done.length ? 30 + rows.done.length * 26 : 0) + (rows.running.length > 8 ? 18 : 0) + 6
   const drawWork = (x: number, wy: number, cw: number, h: number) => {
     out.push(card(x, wy, cw, h))
-    out.push(T(x + 18, wy + 32, busy ? 'Working now' : 'Agents', 't1', 17, 700))
+    out.push(T(x + 18, wy + 33, busy ? 'Working now' : 'Agents', 't1 serif', 19, 400))
     const chats = busyChats(rows.running)
     const pill = busy ? `${rows.running.length} running${chats > 1 ? ` · ${chats} chats` : ''}` : 'idle'
     const pw = pill.length * 6.4 + 22
@@ -564,28 +651,70 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
   }
   if (mode === 'work' || mode === 'top') return assemble()
 
+  // The painting on the wall as a museum label, then what Claude needs to remind you of and a line of the day.
+  const drawMuseum = () => {
+    const wall = m?.wall
+    if (wall && wall.title) {
+      const LH = 76
+      out.push(card(P, y, CW, LH))
+      out.push(`<rect x="${P + 16}" y="${y + 16}" width="2" height="${LH - 32}" rx="1" class="gfill"/>`)
+      out.push(caps(P + 30, y + 27, 'On your wall'))
+      if (wall.room) out.push(caps(P + CW - 18, y + 27, cut(wall.room, Math.max(8, Math.floor((CW - 150) / 7.6))), 't2', 'end'))
+      out.push(T(P + 30, y + 49, cut(wall.title, Math.floor((CW - 50) / (16 * 0.47))), 't1 serif', 16, 400, 'start', 'font-style="italic"'))
+      out.push(T(P + 30, y + 65, cut([wall.artist, wall.year].filter(Boolean).join(' · '), Math.floor((CW - 50) / 6)), 't2', 11, 500))
+      y += LH + GAP
+    }
+    const items = m?.reminders ?? []
+    const shown = items.slice(0, 4)
+    const itemChars = Math.max(16, Math.floor((CW - 60) / (13 * 0.5)))
+    const itemLines = shown.map(t => wrap(t, itemChars).slice(0, 2))
+    const [qText, qBy] = quoteFor(s?.today ?? toIso(new Date(nowMs - new Date(nowMs).getTimezoneOffset() * 60000)))
+    const qLines = wrap(`“${qText}”`, Math.max(18, Math.floor((CW - 36) / (15 * 0.46))))
+    const listH = shown.length ? itemLines.reduce((a, ls) => a + ls.length * 17 + 9, 0) + (items.length > 4 ? 18 : 0) : 26
+    const FH = 50 + listH + 18 + qLines.length * 20 + 32
+    out.push(card(P, y, CW, FH))
+    out.push(title(P, y, 'For you today', items.length ? `${items.length} reminder${items.length === 1 ? '' : 's'}` : 'all clear', P + CW))
+    let fy = y + 60
+    if (!shown.length) {
+      out.push(T(P + 18, fy, 'Nothing waiting on you. Claude adds reminders here.', 't2', 12, 500))
+      fy += 26
+    }
+    shown.forEach((_, i) => {
+      out.push(`<rect x="${P + 20}" y="${fy - 8}" width="7" height="7" rx="1" transform="rotate(45 ${P + 23.5} ${fy - 4.5})" class="gfill"/>`)
+      itemLines[i].forEach((line, j) => out.push(T(P + 38, fy + j * 17, line, 't1', 13, 500)))
+      fy += itemLines[i].length * 17 + 9
+    })
+    if (items.length > 4) {
+      out.push(T(P + 38, fy, `+${items.length - 4} more · /remind lists them`, 't2', 11, 500))
+      fy += 18
+    }
+    out.push(`<line x1="${P + 18}" y1="${fy}" x2="${P + CW - 18}" y2="${fy}" class="sepl"/>`)
+    fy += 22
+    qLines.forEach((line, j) => out.push(T(P + 18, fy + 4 + j * 20, line, 't1 serif', 15, 400, 'start', 'font-style="italic"')))
+    out.push(T(P + 18, fy + 4 + qLines.length * 20 + 2, `— ${qBy}`, 't2', 11, 500))
+    y += FH + GAP
+  }
+
   if (!s || Object.keys(s.days).length === 0) {
     out.push(card(P, y, CW, 70))
     out.push(T(P + 18, y + 42, 'Reading your Claude Code logs…', 't2', 15, 500))
     y += 70 + GAP
+    if (m) drawMuseum()
     if (mode === 'home') return assemble()
   } else {
     const { keys, sum, best, longest, current, avgOut7, today } = summarize(s)
     const level = levelFor(s)
 
-    // Hero: total tokens on a blue gradient, with a 30-day sparkline.
+    // Hero: total tokens in Baskerville on glass, with a gold 30-day line.
     const HH = 178
-    out.push(`<clipPath id="hc"><rect x="${P}" y="${y}" width="${CW}" height="${HH}" rx="24"/></clipPath>`)
-    out.push(`<g clip-path="url(#hc)"><rect x="${P}" y="${y}" width="${CW}" height="${HH}" fill="url(#hero)"/>`)
-    out.push(`<circle cx="${P + CW - 30}" cy="${y + 10}" r="120" fill="#fff" opacity=".10"/>`)
-    out.push(`<circle cx="${P + 40}" cy="${y + HH + 30}" r="90" fill="#fff" opacity=".07"/></g>`)
-    out.push(`<text x="${P + 20}" y="${y + 32}" fill="#fff" fill-opacity=".85" font-size="14" font-weight="600">Total tokens</text>`)
-    out.push(`<text x="${P + 20}" y="${y + 84}" fill="#fff" font-size="${wide ? 52 : 44}" font-weight="800" letter-spacing="-1">${esc(fmt(sum.all))}</text>`)
-    out.push(`<text x="${P + 20}" y="${y + 106}" fill="#fff" fill-opacity=".75" font-size="12" font-weight="500">since ${esc(short(keys[0]))} · incl. cache</text>`)
+    out.push(card(P, y, CW, HH))
+    out.push(caps(P + 20, y + 30, 'Total tokens'))
+    out.push(T(P + 18, y + 84, fmt(sum.all), 't1 serif', wide ? 58 : 50, 400, 'start', 'letter-spacing="-.5"'))
+    out.push(T(P + 20, y + 106, `since ${short(keys[0])} · incl. cache`, 't2', 11, 500))
     // Sparkline of all tokens per day, last 30 days.
     const sx0 = P + CW * (wide ? 0.55 : 0.56)
     const sx1 = P + CW - 20
-    const sy0 = y + 28
+    const sy0 = y + 34
     const sy1 = y + 98
     const series = Array.from({ length: 30 }, (_, i) => {
       const d = s.days[addDays(s.today, i - 29)]
@@ -594,10 +723,10 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     const smax = Math.max(1, ...series)
     const pts = series.map((v, i) => [sx0 + ((sx1 - sx0) * i) / 29, sy1 - ((sy1 - sy0) * v) / smax])
     const line = pts.map(([px, py], i) => `${i ? 'L' : 'M'}${px.toFixed(1)},${py.toFixed(1)}`).join('')
-    out.push(`<path d="${line}L${sx1},${sy1}L${sx0},${sy1}Z" fill="#fff" fill-opacity=".16"/>`)
-    out.push(`<path d="${line}" fill="none" stroke="#fff" stroke-opacity=".9" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`)
-    out.push(`<circle cx="${pts[29][0].toFixed(1)}" cy="${pts[29][1].toFixed(1)}" r="3.5" fill="#fff"/>`)
-    out.push(`<text x="${sx1}" y="${sy1 + 14}" fill="#fff" fill-opacity=".7" font-size="10" text-anchor="end">30 days</text>`)
+    out.push(`<path d="${line}L${sx1},${sy1}L${sx0},${sy1}Z" fill="url(#spark)"/>`)
+    out.push(`<path d="${line}" fill="none" class="gline" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`)
+    out.push(`<circle cx="${pts[29][0].toFixed(1)}" cy="${pts[29][1].toFixed(1)}" r="3.5" class="gfill"/>`)
+    out.push(caps(sx1, y + 30, '30 days', 't2', 'end'))
     // Five mini stats across the bottom; Fable gets the bright slot.
     const mini: [string, string][] = [
       ['Fable', fmt(sum.fable)],
@@ -618,17 +747,19 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       const lead = i === 0
       const mid = mx + cw / 2
       const size = fitFont(value, cw - (lead ? 20 : 12), lead ? leadSize : restSize)
-      if (i > 1) out.push(`<line x1="${mx.toFixed(1)}" y1="${y + 130}" x2="${mx.toFixed(1)}" y2="${y + 160}" stroke="#fff" stroke-opacity=".25"/>`)
+      if (i > 0) out.push(`<line x1="${mx.toFixed(1)}" y1="${y + 130}" x2="${mx.toFixed(1)}" y2="${y + 162}" class="sepl"/>`)
       if (lead) {
-        // As wide as the text plus even padding (never wider than the column), centered on the text.
+        // A faint gold wash behind Fable: as wide as the text plus even padding, centered on the text.
         const bw = Math.min(cw - 6, Math.max(textWidth(value, size), textWidth(label, 10)) + 28)
-        out.push(`<rect x="${(mid - bw / 2).toFixed(1)}" y="${y + 121}" width="${bw.toFixed(1)}" height="46" rx="12" fill="#fff" fill-opacity=".16"/>`)
+        out.push(`<rect x="${(mid - bw / 2).toFixed(1)}" y="${y + 123}" width="${bw.toFixed(1)}" height="46" rx="12" class="pill"/>`)
       }
-      out.push(`<text x="${mid.toFixed(1)}" y="${y + 138}" text-anchor="middle" fill="#fff" fill-opacity="${lead ? '.95' : '.7'}" font-size="10" font-weight="${lead ? 700 : 500}">${esc(label)}</text>`)
-      out.push(`<text x="${mid.toFixed(1)}" y="${y + 158}" text-anchor="middle" fill="#fff" font-size="${size}" font-weight="700">${esc(value)}</text>`)
+      out.push(T(mid, y + 140, label, lead ? 'accent' : 't2', 10, lead ? 700 : 500, 'middle'))
+      out.push(T(mid, y + 160, value, lead ? 'accent' : 't1', size, 600, 'middle'))
       mx += cw
     })
+    out.push(`<line x1="${P + 18}" y1="${y + 118}" x2="${P + CW - 18}" y2="${y + 118}" class="sepl"/>`)
     y += HH + GAP
+    if (m) drawMuseum()
     if (mode === 'home') return assemble()
 
     // Rings: 5-hour limit, weekly limit, this chat's context.
@@ -656,15 +787,17 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       const cy = y + 22 + r + 6
       const pct = Math.max(0, Math.min(100, ring.pct ?? 0))
       const color = ring.plain ? null : severity(ring.pct)
-      out.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" class="track" stroke-width="7"/>`)
+      out.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" class="track" stroke-width="5"/>`)
       if (pct > 0) {
         out.push(
-          `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" ${color ? `stroke="${color}"` : 'class="ringfg"'} stroke-width="7" stroke-linecap="round" stroke-dasharray="${((circ * pct) / 100).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 ${cx} ${cy})"/>`,
+          `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" ${color ? `stroke="${color}"` : 'class="ringfg"'} stroke-width="5" stroke-linecap="round" stroke-dasharray="${((circ * pct) / 100).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 ${cx} ${cy})"/>`,
         )
       }
-      out.push(T(cx, cy + 5, ring.pct == null ? '—' : `${Math.round(ring.pct)}%`, 't1', 14, 700, 'middle'))
+      out.push(T(cx, cy + 5, ring.pct == null ? '—' : `${Math.round(ring.pct)}%`, 't1', 14, 600, 'middle'))
       out.push(T(cx, cy + r + 22, ring.label, 't1', 12, 600, 'middle'))
-      out.push(T(cx, cy + r + 37, cut(ring.sub, Math.floor((colW - 8) / 5.6)), 't2', 10, 500, 'middle'))
+      // A sign as well as a colour (like the widget): ▲ from 70%, ‼ from 90%.
+      const sign = color ? ((ring.pct ?? 0) >= 90 ? '‼ ' : '▲ ') : ''
+      out.push(T(cx, cy + r + 37, sign + cut(ring.sub, Math.floor((colW - 8) / 5.6) - sign.length), 't2', 10, 500, 'middle', color ? `style="fill:${color}"` : ''))
     })
     y += RH + GAP
 
@@ -729,7 +862,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
         const d = s.days[iso]
         const tip = d ? `${short(iso)}: ${fmt(d.out)} output · ${fmt(total(d))} all · ${d.sessions} sessions` : `${short(iso)}: no activity`
         out.push(
-          `<rect class="cell ${lv ? 'heat' : 'empty'}" x="${mx.toFixed(1)}" y="${(gy + rr * (cell + gap)).toFixed(1)}" width="${cell.toFixed(1)}" height="${cell.toFixed(1)}" rx="${(cell * 0.28).toFixed(1)}"${lv ? ` fill-opacity="${[0, 0.28, 0.5, 0.75, 1][lv]}"` : ''}${iso === s.today ? ' stroke="#8a8a8e" stroke-width="1.5"' : ''}><title>${esc(tip)}</title></rect>`,
+          `<rect class="cell ${lv ? 'heat' : 'empty'}" x="${mx.toFixed(1)}" y="${(gy + rr * (cell + gap)).toFixed(1)}" width="${cell.toFixed(1)}" height="${cell.toFixed(1)}" rx="${(cell * 0.28).toFixed(1)}"${lv ? ` fill-opacity="${[0, 0.28, 0.5, 0.75, 1][lv]}"` : ''}${iso === s.today ? ` stroke="${GOLD}" stroke-width="1.5"` : ''}><title>${esc(tip)}</title></rect>`,
         )
       }
     }
@@ -817,14 +950,15 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
   const tipLines = tips.map(t => wrap(t, maxChars))
   const RCH = 52 + tipLines.reduce((a, ls) => a + ls.length * 18 + 24, 0)
   out.push(card(P, y, CW, RCH))
-  out.push(T(P + 18, y + 32, 'Recommendations', 't1', 17, 700))
+  out.push(T(P + 18, y + 33, 'Recommendations', 't1 serif', 19, 400))
   let ty = y + 58
   tips.forEach((t, i) => {
     const isGood = /healthy/i.test(t)
     const color = /at (9\d|1\d\d)%/.test(t) ? RED : /at [78]\d%|full|2x|agents running/.test(t) ? ORANGE : isGood ? GREEN : null
     if (i > 0) out.push(`<line x1="${P + 56}" y1="${ty - 14}" x2="${P + CW - 18}" y2="${ty - 14}" class="sepl"/>`)
-    out.push(`<circle cx="${P + 32}" cy="${ty + 2}" r="12" ${color ? `fill="${color}"` : 'class="accent"'}/>`)
-    out.push(`<text x="${P + 32}" y="${ty + 7}" fill="#fff" font-size="13" font-weight="800" text-anchor="middle">${isGood ? '✓' : color ? '!' : 'i'}</text>`)
+    // Outlined badges, like a numbered label in a gallery: gold for notes, warm colours for warnings.
+    out.push(`<circle cx="${P + 32}" cy="${ty + 2}" r="11" fill="none" stroke="${color ?? GOLD}" stroke-width="1.2"/>`)
+    out.push(`<text x="${P + 32}" y="${ty + 6.5}" ${color ? `fill="${color}" class="serif"` : 'class="accent serif"'} font-size="12" font-weight="700" text-anchor="middle">${isGood ? '✓' : color ? '!' : 'i'}</text>`)
     tipLines[i].forEach((line, j) => out.push(T(P + 56, ty + 6 + j * 18, line, 't1', 13, 450)))
     ty += tipLines[i].length * 18 + 24
   })
@@ -839,7 +973,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
 }
 
 const LAPTOP =
-  '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"><style>path{stroke:#3a3a3c}@media (prefers-color-scheme:dark){path{stroke:#e5e5ea}}</style>' +
+  '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"><style>path{stroke:#9A7A3A}@media (prefers-color-scheme:dark){path{stroke:#C9A45C}}</style>' +
   '<path d="M5.5 6h13a1 1 0 0 1 1 1v8.5h-15V7a1 1 0 0 1 1-1zM2.5 15.5h19v1a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5z" fill="none" stroke-width="1.6" stroke-linejoin="round"/></svg>'
 
 const envName = (path: string, home: string): string =>
@@ -923,16 +1057,16 @@ async function envMenu($: any, els: any) {
   }
   const name = (p: string) => envName(p, home ?? '')
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="subtle" backgroundColor="#8080800d" paddingX={2} paddingY={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor="#C9A45C66" backgroundColor="#C9A45C0d" paddingX={2} paddingY={1}>
       <Box flexDirection="row" justifyContent="space-between">
         <Text bold>Environment</Text>
         <Text color="subtle">wrong folder? switch any time</Text>
       </Box>
       {switching ? (
-        <Text color="suggestion">⟳ Switching to {name(switching)}… the chat moves when this reply ends.</Text>
+        <Text color={GOLD_TEXT}>⟳ Switching to {name(switching)}… the chat moves when this reply ends.</Text>
       ) : suggested && suggested !== cwd ? (
         <Box flexDirection="column" gap={1}>
-          <Text color="suggestion">This task fits {name(suggested)} better than {name(cwd)}.</Text>
+          <Text color={GOLD_TEXT}>This task fits {name(suggested)} better than {name(cwd)}.</Text>
           <Box flexDirection="row">
             <Button key="env:suggested" variant="primary" label={`Switch to ${cut(name(suggested), 18)}`} onPress={() => go(suggested)} />
           </Box>
@@ -942,30 +1076,30 @@ async function envMenu($: any, els: any) {
       )}
       <Box flexDirection="column" marginTop={1}>
         {envs.slice(0, 6).map(env => (
-          <Box key={env.path} flexDirection="row" alignItems="center" gap={1} hover={{ backgroundColor: '#80808024' }}>
+          <Box key={env.path} flexDirection="row" alignItems="center" gap={1} hover={{ backgroundColor: '#C9A45C24' }}>
             {/* The name side grows and shortens; the ✓ keeps its own fixed column at the right. */}
             <Box flexDirection="row" alignItems="center" gap={1} flexGrow={1} flexShrink={1} overflow="hidden">
               <Svg source={LAPTOP} alt="folder" width={18} height={18} />
               <Button key={`env:${env.path}`} plain onPress={() => (env.path === cwd ? undefined : go(env.path))}>
                 {cut(name(env.path), 24)}
                 {env.path === switching ? (
-                  <Text color="suggestion"> · switching…</Text>
+                  <Text color={GOLD_TEXT}> · switching…</Text>
                 ) : env.path === suggested && env.path !== cwd ? (
-                  <Text color="suggestion"> · suggested</Text>
+                  <Text color={GOLD_TEXT}> · suggested</Text>
                 ) : (
                   ''
                 )}
               </Button>
             </Box>
             <Box flexShrink={0} width={3} justifyContent="flex-end">
-              {env.path === cwd ? <Text color="suggestion" bold>✓</Text> : <Text> </Text>}
+              {env.path === cwd ? <Text color={GOLD_TEXT} bold>✓</Text> : <Text> </Text>}
             </Box>
           </Box>
         ))}
       </Box>
       <Box flexDirection="row" marginTop={1}>
         <Button key="env:choose" plain onPress={() => void $.prompt.submit({ text: CHOOSE_PROMPT })}>
-          <Text color="suggestion">Choose environment ⌄</Text>
+          <Text color={GOLD_TEXT}>Choose environment ⌄</Text>
         </Button>
       </Box>
     </Box>
@@ -975,11 +1109,11 @@ async function envMenu($: any, els: any) {
 /** The full dashboard: environment menu over the SVG. */
 async function richTree($: any, e: any, els: any, widthPx: number) {
   const { Box, Svg } = els
-  const [s, l, wk] = await Promise.all([read($, stats), read($, live), read($, work)])
+  const [s, l, wk, mu] = await Promise.all([read($, stats), read($, live), read($, work), read($, museum)])
   // Two pictures: the live top (clock, work) redraws often as a plain image; the body
   // (charts, grid) only when its own numbers change, so it never flashes on live updates.
   const top = dashboardSvg(s, l, widthPx, wk, 'top')
-  const body = dashboardSvg(s, l, widthPx, wk, 'body')
+  const body = dashboardSvg(s, l, widthPx, wk, 'body', mu)
   return (
     <Box flexDirection="column" gap={1}>
       {await envMenu($, els)}
@@ -1035,6 +1169,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'usage-grid', description: 'Open the usage dashboard: tokens, grid, agents, limits, tips' })
     await $.command.register({ name: 'dashboard', description: 'Open the usage dashboard (same as /usage-grid)' })
+    await $.command.register({ name: 'remind', description: 'Reminders on the dashboard: /remind (list), /remind <text> (add), /remind done <n>' })
     const started = await next(e)
     // Open unasked at every start. The desktop app starts sessions through the SDK
     // (isInteractive false, no surface yet): an unasked pane waits for a surface to
@@ -1045,6 +1180,9 @@ export const register: Register = on => {
     void loadCachedStats($).then(() => refreshStats($))
     $.clock.every(15000, () => void refreshLive($))
     $.clock.every(600000, () => void refreshStats($))
+    // The painting on the wall and the reminders note change rarely: read them every 3 minutes.
+    void refreshMuseum($)
+    $.clock.every(180000, () => void refreshMuseum($))
     void checkWhere($)
     $.clock.every(2000, () => void checkWhere($))
     // Work across chats: heartbeat out every 10 s, read the others every 5 s.
@@ -1116,12 +1254,12 @@ export const register: Register = on => {
             plain
             onPress={() => void (isOpen ? $.ui.close({ id: PANE }) : $.ui.open({ id: PANE, title: TITLE }))}
           >
-            <Text color="suggestion">{isOpen ? '▦ Hide dashboard' : '▦ Dashboard'}</Text>
+            <Text color={GOLD_TEXT}>{isOpen ? '▦ Hide dashboard' : '▦ Dashboard'}</Text>
           </Button>
           {facts ? <Text color="subtle">{facts}</Text> : null}
           {isWorkHidden && running >= 2 ? (
             <Button key="work:show" plain onPress={() => void update($, workHidden, () => false)}>
-              <Text color="suggestion">▴ Show working now ({running})</Text>
+              <Text color={GOLD_TEXT}>▴ Show working now ({running})</Text>
             </Button>
           ) : null}
         </Box>
@@ -1136,11 +1274,11 @@ export const register: Register = on => {
     const isFullOpen = (await $.ui.panes()).some((pane: { id: string }) => pane.id === PANE)
     const openFull = (
       <Button key="dash:open" plain onPress={() => void (isFullOpen ? $.ui.close({ id: PANE }) : $.ui.open({ id: PANE, title: TITLE }))}>
-        <Text color="suggestion">{isFullOpen ? 'Hide full dashboard' : 'Open full dashboard ›'}</Text>
+        <Text color={GOLD_TEXT}>{isFullOpen ? 'Hide full dashboard' : 'Open full dashboard ›'}</Text>
       </Button>
     )
     if (isNew) {
-      const card = hasSvg ? dashboardSvg(s, l, widthPx, wk, 'home') : null
+      const card = hasSvg ? dashboardSvg(s, l, widthPx, wk, 'home', await read($, museum)) : null
       return (
         <Box flexDirection="column" gap={1}>
           {card ? <Svg source={card.svg} alt={`Total tokens ${s ? fmt(summarize(s).sum.all) : ''}`} /> : null}
@@ -1156,7 +1294,7 @@ export const register: Register = on => {
         {workCard ? <Svg source={workCard.svg} alt={`${running} running`} /> : running >= 2 ? <Text>{running} running</Text> : null}
         {mismatch ? (
           <Box flexDirection="row" gap={1} alignItems="center">
-            <Text color="suggestion">
+            <Text color={GOLD_TEXT}>
               This looks like {envName(target, home ?? '')} work; you're in {envName(cwd, home ?? '')}.
             </Text>
             <Button key="env:band-switch" variant="primary" label={`Switch to ${cut(envName(target, home ?? ''), 18)}`} onPress={() => void sendSwitch($, target)} />
@@ -1248,6 +1386,18 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // Reminders live in the Obsidian note "Reminders from Claude"; any chat (or Q) can add or tick one.
+  on('command.run', { command: 'remind' }, async ($, e) => {
+    const args = String((e as any).args ?? '').trim()
+    const done = /^(done|x|tick)\s+(\d+)$/i.exec(args)
+    const got = await refreshMuseum($, args === '' ? ['show'] : done ? ['done', done[2]] : ['add', args])
+    if (!got) return { text: 'Could not read the reminders note.' }
+    if (done && !got.ok) return { text: `There is no open reminder ${done[2]}.` }
+    const list = got.reminders.length ? got.reminders.map((r, i) => `${i + 1}. ${r}`).join('\n') : 'Nothing waiting on you.'
+    const head = done ? `Ticked ${done[2]}.` : args ? 'Added.' : 'Reminders:'
+    return { text: `${head}\n${list}\n(/remind <text> adds · /remind done <n> ticks · kept in Obsidian: 40 Personal/Reminders from Claude)` }
+  })
+
   on('command.run', { command: 'dashboard' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE })
     void refreshLive($)
@@ -1288,7 +1438,7 @@ export const register: Register = on => {
         <Text dimColor>Right now</Text>
         {(l?.limits ?? []).length === 0 && <Text dimColor>No plan limit reading yet (shows after a reply).</Text>}
         {(l?.limits ?? []).map((lim: Limit) => (
-          <Text color={lim.percentUsed >= 90 ? '#ff6b5e' : lim.percentUsed >= 70 ? '#ffb347' : undefined}>
+          <Text color={lim.percentUsed >= 90 ? '#D9684E' : lim.percentUsed >= 70 ? ORANGE : undefined}>
             {limitName(lim.kind).padEnd(7)} {String(Math.round(lim.percentUsed)).padStart(3)}% used
             {lim.resetsAt ? ` · resets in ${untilText(lim.resetsAt, now)}` : ''}
           </Text>
@@ -1313,7 +1463,7 @@ export const register: Register = on => {
           {running.length === 0 && <Text dimColor>None running.</Text>}
           {running.slice(0, 5).map(a => (
             <Text>
-              <Text color="#5fa3e8">● </Text>
+              <Text color={GOLD}>● </Text>
               {a.name.length > columns - 6 ? `${a.name.slice(0, Math.max(1, columns - 7))}…` : a.name}
             </Text>
           ))}
@@ -1329,7 +1479,7 @@ export const register: Register = on => {
         <Text dimColor>Recommendations</Text>
         {tips.map(t => (
           <Text>
-            <Text color="#5fa3e8">› </Text>
+            <Text color={GOLD}>› </Text>
             {t}
           </Text>
         ))}
@@ -1373,8 +1523,8 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         {header}
-        <Text bold color="#9fd0ff">{fmt(sum.all)} total tokens</Text>
-        {sum.fable > 0 && <Text color="#c9b8ff">Fable {fmt(sum.fable)} tokens · {fmt(sum.fableOut)} output</Text>}
+        <Text bold color={GOLD}>{fmt(sum.all)} total tokens</Text>
+        {sum.fable > 0 && <Text color="#EFE6D2">Fable {fmt(sum.fable)} tokens · {fmt(sum.fableOut)} output</Text>}
         <Text dimColor>
           {fmt(sum.out)} output · {sum.sessions} sessions · {keys.length} active days
         </Text>
@@ -1425,7 +1575,7 @@ export const register: Register = on => {
             <Text dimColor>Models by output</Text>
             {models.map(([name, out]) => (
               <Text>
-                <Text color="#5fa3e8">{'█'.repeat(Math.max(1, Math.round((out / modelMax) * 8)))}</Text>
+                <Text color={GOLD}>{'█'.repeat(Math.max(1, Math.round((out / modelMax) * 8)))}</Text>
                 {` ${name.replace('claude-', '')} ${fmt(out)}`}
               </Text>
             ))}

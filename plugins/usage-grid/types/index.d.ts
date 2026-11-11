@@ -64,6 +64,6 @@ export type Task = { text: string; suggested: string | null; score: number; dism
 
 declare module 'claude-code' {
   interface PluginState {
-    'usage-grid': { stats: Shaped<Stats | null>; live: Shaped<Live | null>; work: Shaped<Work>; task: Shaped<Task | null>; workHidden: boolean; where: string; pending: Shaped<{ path: string; at: number; nagged: boolean } | null> }
+    'usage-grid': { stats: Shaped<Stats | null>; live: Shaped<Live | null>; work: Shaped<Work>; task: Shaped<Task | null>; workHidden: boolean; where: string; pending: Shaped<{ path: string; at: number; nagged: boolean } | null>; museum: Shaped<{ wall: { title: string; artist: string; year: string; room: string } | null; reminders: string[] } | null> }
   }
 }
