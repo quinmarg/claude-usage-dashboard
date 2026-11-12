@@ -1,5 +1,8 @@
 # Changelog (usage-grid)
 
+## 0.12.3 (2026-11-11)
+- Activity card: the right-hand label is cut to fit beside the title; the "Busiest" footer is cut before the Less/More legend; the heatmap has equal padding on both sides and today's cell is the same size as the rest; the card's top highlight line (it looked like a clipped edge) is gone.
+
 ## 0.12.2 (2026-11-11)
 - Folder switch, after review: the 30-second timer is gone (a plugin's message only goes in once the chat is idle, so a press during a long reply was being dropped). Each press makes a one-time code stored in the chat's own state (kept across `/reload-plugins`); the message must carry this chat's id and the latest code and is accepted once, marked used only after it really went in. Same folder pressed again: "already on its way"; another folder replaces it; a refused or failed send clears it. The "didn't happen" notice waits while the chat is busy.
 - Every Button key now carries the chat's id (also Open/Hide dashboard, Show/Hide working now, Hide for this chat).

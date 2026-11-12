@@ -590,13 +590,13 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     `<text x="${x.toFixed(1)}" y="${ty.toFixed(1)}" class="${cls}" font-size="${size}" font-weight="${weight}" text-anchor="${anchor}" ${extra}>${esc(str)}</text>`
   // A glass card: translucent fill, a gold hairline edge, and a bright line along the top like light on glass.
   const card = (x: number, cy: number, w: number, h: number) =>
-    `<rect x="${x + 0.5}" y="${cy + 0.5}" width="${(w - 1).toFixed(1)}" height="${(h - 1).toFixed(1)}" rx="18" class="card" filter="url(#sh)"/>` +
-    `<path d="M${(x + 18).toFixed(1)} ${(cy + 1.5).toFixed(1)}H${(x + w - 18).toFixed(1)}" class="hl"/>`
+    `<rect x="${x + 0.5}" y="${cy + 0.5}" width="${(w - 1).toFixed(1)}" height="${(h - 1).toFixed(1)}" rx="18" class="card" filter="url(#sh)"/>`
   const caps = (x: number, ty: number, str: string, cls = 't2', anchor = 'start') =>
     T(x, ty, str.toUpperCase(), cls, 10, 600, anchor, 'letter-spacing="1.4"')
   // Card titles are set in Baskerville, like a gallery label; the small note on the right in small caps.
   const title = (x: number, cy: number, str: string, sub?: string, right?: number) =>
-    T(x + 18, cy + 33, str, 't1 serif', 19, 400) + (sub && right ? caps(right - 18, cy + 31, sub, 't2', 'end') : '')
+    T(x + 18, cy + 33, str, 't1 serif', 19, 400) +
+    (sub && right ? caps(right - 18, cy + 31, cut(sub, Math.max(0, Math.floor((right - x - 36 - str.length * 9.6 - 16) / 7.4))), 't2', 'end') : '')
 
   // Header: date in serif and the time in gold, like the top of a gallery guide.
   const now = new Date(nowMs)
@@ -851,7 +851,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     const cell = Math.min(20, (avail - (weeks - 1) * gap) / weeks)
     const lastWeekStart = addDays(s.today, -toDate(s.today).getUTCDay())
     const gridStart = addDays(lastWeekStart, -(weeks - 1) * 7)
-    const gx = P + 18 + labelW
+    const gx = P + 18 + labelW + Math.max(0, avail - (weeks * (cell + gap) - gap))
     const gy = y + 68
     const gridH = 7 * (cell + gap) - gap
     const AH = 68 + gridH + 48
@@ -876,7 +876,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
         const d = s.days[iso]
         const tip = d ? `${short(iso)}: ${fmt(d.out)} output · ${fmt(total(d))} all · ${d.sessions} sessions` : `${short(iso)}: no activity`
         out.push(
-          `<rect class="cell ${lv ? 'heat' : 'empty'}" x="${mx.toFixed(1)}" y="${(gy + rr * (cell + gap)).toFixed(1)}" width="${cell.toFixed(1)}" height="${cell.toFixed(1)}" rx="${(cell * 0.28).toFixed(1)}"${lv ? ` fill-opacity="${[0, 0.28, 0.5, 0.75, 1][lv]}"` : ''}${iso === s.today ? ` stroke="${GOLD}" stroke-width="1.5"` : ''}><title>${esc(tip)}</title></rect>`,
+          `<rect class="cell ${lv ? 'heat' : 'empty'}" x="${mx.toFixed(1)}" y="${(gy + rr * (cell + gap)).toFixed(1)}" width="${cell.toFixed(1)}" height="${cell.toFixed(1)}" rx="${(cell * 0.28).toFixed(1)}"${lv ? ` fill-opacity="${[0, 0.28, 0.5, 0.75, 1][lv]}"` : ''}${iso === s.today ? ` stroke="${GOLD}" stroke-width="1.2" transform="translate(.6 .6) scale(${((cell - 1.2) / cell).toFixed(4)})" transform-origin="${mx.toFixed(1)} ${(gy + rr * (cell + gap)).toFixed(1)}"` : ''}><title>${esc(tip)}</title></rect>`,
         )
       }
     }
@@ -884,7 +884,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       out.push(T(P + 18, gy + (rr as number) * (cell + gap) + cell * 0.75, label as string, 't2', 10, 500)),
     )
     const ly = gy + gridH + 30
-    out.push(T(P + 18, ly, `Busiest ${short(best)} · ${fmt(s.days[best].out)} output`, 't2', 11, 500))
+    out.push(T(P + 18, ly, cut(`Busiest ${short(best)} · ${fmt(s.days[best].out)} output`, Math.max(8, Math.floor((CW - 36 - 160) / 6))), 't2', 11, 500))
     const lx = P + CW - 18
     out.push(T(lx, ly, 'More', 't2', 10, 500, 'end'))
     ;[4, 3, 2, 1, 0].forEach((lv, i) => {
