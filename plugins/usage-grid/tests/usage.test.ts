@@ -77,7 +77,7 @@ test('dashboard svg: total at the top, every section, sized to the pane', () => 
   expect(narrow.svg.length).toBeLessThan(131072)
   // A wide pane shows more weeks in the activity rectangle.
   const wide = dashboardSvg(stats, l, 860, wk)
-  const weeksOf = (svg: string) => Number(/last (\d+) weeks/i.exec(svg)?.[1])
+  const weeksOf = (svg: string) => Number(/(\d+) weeks/i.exec(svg)?.[1])
   expect(weeksOf(wide.svg)).toBeGreaterThan(weeksOf(narrow.svg))
   expect(dashboardSvg(null, null, 420).svg.includes('Reading your Claude Code logs')).toBe(true)
 })
@@ -364,4 +364,24 @@ test('folder switch: the request is plain data, so it survives a plugin reload',
 
 test('line of the day never breaks on a bad date', () => {
   expect(quoteFor('not-a-date')[0].length).toBeGreaterThan(0)
+})
+
+test('layout rules hold at every width: no text under 12 px, equal heatmap cells, labels fit beside titles', () => {
+  const mu = { wall: { title: 'The Barque of Dante', artist: 'Eugène Delacroix', year: '1822', room: 'Dante' }, reminders: ['Install the Museum screensaver: double-click Museum.saver in museum-screensaver/build, then pick it in Settings', 'b', 'c', 'd', 'e'] }
+  for (const width of [340, 380, 560, 760]) {
+    const svgs = [
+      dashboardSvg(stats, live, width, EMPTY_WORK, 'full', mu).svg,
+      dailySvg(dailyFacts(stats, live, EMPTY_WORK, mu, live.now), width).svg,
+    ]
+    for (const svg of svgs) {
+      const sizes = [...svg.matchAll(/font-size="([\d.]+)"/g)].map(m => Number(m[1]))
+      expect(Math.min(...sizes)).toBeGreaterThanOrEqual(12)
+    }
+    const cells = [...svgs[0].matchAll(/class="cell [^"]*"[^>]*width="([\d.]+)" height="([\d.]+)"/g)]
+    expect(cells.length).toBeGreaterThan(20)
+    expect(new Set(cells.map(m => `${m[1]}x${m[2]}`)).size).toBe(1)
+    // The Activity label is short enough to sit beside the title in the card.
+    const label = /(LAST \d+ WEEKS · OUTPUT TOKENS|\d+ WEEKS · OUTPUT)/.exec(svgs[0])?.[1] ?? ''
+    expect(label.length * 8.6 + 'Activity'.length * 9.6 + 16).toBeLessThan(width - 32 - 32)
+  }
 })

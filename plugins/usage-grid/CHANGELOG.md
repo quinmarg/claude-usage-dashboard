@@ -1,5 +1,9 @@
 # Changelog (usage-grid)
 
+## 0.12.4 (2026-11-11)
+- Layout audit of every card at 340/380/560/760 px, light and dark: one spacing scale (16 px inside cards, 12 px between), 12 px minimum text everywhere, no double gap between the live top and the body, short forms in the narrow side pane instead of cut text (hero without "Days", Today without "Fable today", ring captions "in 4h", Activity "16 weeks · output", "Busiest" without the number when tight), daily update with a short date when narrow, reminders that run past two lines end with "…".
+- Test: no text under 12 px, equal heatmap cells and the Activity label fitting beside its title, at every width.
+
 ## 0.12.3 (2026-11-11)
 - Activity card: the right-hand label is cut to fit beside the title; the "Busiest" footer is cut before the Less/More legend; the heatmap has equal padding on both sides and today's cell is the same size as the rest; the card's top highlight line (it looked like a clipped edge) is gone.
 

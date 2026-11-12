@@ -55,3 +55,9 @@ Where the dashboard was placed in each chat is logged to `~/.claude/usage-grid.l
 
 ## Folder switch fix (0.12.1, 0.12.2)
 - A folder switch happens only in the chat where you pressed the button, and only once. Every button's address carries its chat's id; each press makes a one-time code, kept in the chat's own state (it survives `/reload-plugins`); the switch message carries the chat's id and the code, and the mod drops any switch message for another chat, with an old code, or sent twice (logged in `~/.claude/usage-grid.log`). There is no timer, because a plugin's message only goes in once the chat is idle: a press during a long reply still counts. Pressing the same folder again says "already on its way"; another folder replaces the pending one; a refused or failed send clears it so you can press again. (0.12.2)
+
+## Layout polish (0.12.3, 0.12.4)
+- One spacing scale (4/8/12/16/24): 16 px inside cards, 12 px between them; no text smaller than 12 px anywhere (pictures and daily update).
+- Titles never collide with their small labels; footers and legends never overlap; every heatmap cell is the same size, with equal padding on both sides.
+- In the narrow side pane (under ~420 px) some rows use short forms instead of cut text: the hero drops "Days", the Today row drops "Fable today" (both stay in the wide view), ring captions say "in 4h", the Activity label says "16 weeks · output".
+- Checked at 340, 380, 560 and 760 px in light and dark; a test checks the 12 px minimum and equal cells at every width.

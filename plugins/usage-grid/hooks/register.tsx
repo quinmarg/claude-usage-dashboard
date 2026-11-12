@@ -176,7 +176,7 @@ export const textWidth = (t: string, size: number): number =>
 
 /** The largest font size up to `max` (never under 10) that fits `t` in `room` px. */
 export const fitFont = (t: string, room: number, max: number): number =>
-  Math.max(10, Math.min(max, Math.floor((max * room) / Math.max(1, textWidth(t, max)))))
+  Math.max(12, Math.min(max, Math.floor((max * room) / Math.max(1, textWidth(t, max)))))
 
 /** Column widths for the hero's mini stats: each gets what its label and value need plus a gap,
  * then any spare width is shared evenly. If they can't all fit, widths scale down together. */
@@ -569,11 +569,13 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
   const W = Math.round(Math.min(900, Math.max(340, width)))
   const P = 16
   const CW = W - 2 * P
-  const GAP = 14
+  const GAP = 12
   const wide = W >= 620
+  // Below ~420 px (the side pane) some rows use short forms so nothing is cut or touching.
+  const narrow = W < 420
   const nowMs = l?.now || Date.now()
   const out: string[] = []
-  let y = P
+  let y = mode === 'body' ? 4 : P
   const assemble = () => {
   const H = Math.round(y)
   const svg =
@@ -592,11 +594,11 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
   const card = (x: number, cy: number, w: number, h: number) =>
     `<rect x="${x + 0.5}" y="${cy + 0.5}" width="${(w - 1).toFixed(1)}" height="${(h - 1).toFixed(1)}" rx="18" class="card" filter="url(#sh)"/>`
   const caps = (x: number, ty: number, str: string, cls = 't2', anchor = 'start') =>
-    T(x, ty, str.toUpperCase(), cls, 10, 600, anchor, 'letter-spacing="1.4"')
+    T(x, ty, str.toUpperCase(), cls, 12, 600, anchor, 'letter-spacing="1.4"')
   // Card titles are set in Baskerville, like a gallery label; the small note on the right in small caps.
   const title = (x: number, cy: number, str: string, sub?: string, right?: number) =>
-    T(x + 18, cy + 33, str, 't1 serif', 19, 400) +
-    (sub && right ? caps(right - 18, cy + 31, cut(sub, Math.max(0, Math.floor((right - x - 36 - str.length * 9.6 - 16) / 7.4))), 't2', 'end') : '')
+    T(x + 16, cy + 33, str, 't1 serif', 19, 400) +
+    (sub && right ? caps(right - 16, cy + 31, cut(sub, Math.max(0, Math.floor((right - x - 36 - str.length * 9.6 - 16) / 8.6))), 't2', 'end') : '')
 
   // Header: date in serif and the time in gold, like the top of a gallery guide.
   const now = new Date(nowMs)
@@ -615,15 +617,15 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     56 + (busy ? Math.min(8, rows.running.length) * 48 : 30) + (rows.done.length ? 30 + rows.done.length * 26 : 0) + (rows.running.length > 8 ? 18 : 0) + 6
   const drawWork = (x: number, wy: number, cw: number, h: number) => {
     out.push(card(x, wy, cw, h))
-    out.push(T(x + 18, wy + 33, busy ? 'Working now' : 'Agents', 't1 serif', 19, 400))
+    out.push(T(x + 16, wy + 33, busy ? 'Working now' : 'Agents', 't1 serif', 19, 400))
     const chats = busyChats(rows.running)
     const pill = busy ? `${rows.running.length} running${chats > 1 ? ` · ${chats} chats` : ''}` : 'idle'
-    const pw = pill.length * 6.4 + 22
-    out.push(`<rect x="${(x + cw - 18 - pw).toFixed(1)}" y="${wy + 17}" width="${pw.toFixed(1)}" height="22" rx="11" class="pill"/>`)
-    out.push(T(x + cw - 18 - pw / 2, wy + 32, pill, busy ? 'accent' : 't2', 11, 600, 'middle'))
+    const pw = pill.length * 7 + 24
+    out.push(`<rect x="${(x + cw - 16 - pw).toFixed(1)}" y="${wy + 17}" width="${pw.toFixed(1)}" height="22" rx="11" class="pill"/>`)
+    out.push(T(x + cw - 16 - pw / 2, wy + 32, pill, busy ? 'accent' : 't2', 12, 600, 'middle'))
     let ry = wy + 64
     if (!busy) {
-      out.push(T(x + 18, ry, 'Nothing running right now', 't2', 13, 500))
+      out.push(T(x + 16, ry, 'Nothing running right now', 't2', 13, 500))
       ry += 30
     }
     const chars = Math.floor((cw - 110) / 7)
@@ -633,26 +635,26 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
         `<circle cx="${x + 24}" cy="${ry - 4}" r="5" ${waiting ? `fill="${ORANGE}"` : r.kind === 'main' ? `fill="${GREEN}"` : 'class="dot"'}><animate attributeName="opacity" values="1;.35;1" dur="1.6s" repeatCount="indefinite"/></circle>`,
       )
       out.push(T(x + 38, ry, cut(r.name, chars), 't1', 14, 600))
-      out.push(T(x + cw - 18, ry, r.startedAt ? ago(nowMs - r.startedAt) : '', 't2', 12, 500, 'end'))
+      out.push(T(x + cw - 16, ry, r.startedAt ? ago(nowMs - r.startedAt) : '', 't2', 12, 500, 'end'))
       const detail = [r.where && r.kind === 'agent' ? `in ${r.where}` : '', r.kind === 'main' ? (r.where ? 'other chat' : 'this chat') : r.type, r.model.replace(/^claude-/, ''), waiting ? r.status : '', `${r.tools} tool${r.tools === 1 ? '' : 's'}`, r.lastTool]
         .filter(Boolean)
         .join(' · ')
-      out.push(T(x + 38, ry + 18, cut(detail, Math.floor((cw - 60) / 6.2)), 't2', 11, 500))
+      out.push(T(x + 38, ry + 18, cut(detail, Math.floor((cw - 60) / 6.8)), 't2', 12, 500))
       ry += 48
     })
     if (rows.running.length > 8) {
-      out.push(T(x + 38, ry - 8, `+${rows.running.length - 8} more running`, 't2', 11, 600))
+      out.push(T(x + 38, ry - 8, `+${rows.running.length - 8} more running`, 't2', 12, 600))
       ry += 18
     }
     if (rows.done.length) {
-      out.push(`<line x1="${x + 18}" y1="${ry - 14}" x2="${x + cw - 18}" y2="${ry - 14}" class="sepl"/>`)
-      out.push(T(x + 18, ry + 4, 'FINISHED RECENTLY', 't2', 10, 700, 'start', 'letter-spacing="1"'))
+      out.push(`<line x1="${x + 16}" y1="${ry - 14}" x2="${x + cw - 16}" y2="${ry - 14}" class="sepl"/>`)
+      out.push(T(x + 16, ry + 4, 'FINISHED RECENTLY', 't2', 12, 700, 'start', 'letter-spacing="1"'))
       ry += 26
       rows.done.forEach(r => {
         const ok = r.status === 'completed' || r.status === 'idle'
         out.push(`<circle cx="${x + 24}" cy="${ry - 4}" r="5" fill="${ok ? GREEN : RED}" fill-opacity=".85"/>`)
         out.push(T(x + 38, ry, cut(r.where ? `${r.name} · ${r.where}` : r.name, chars), 't2', 13, 500))
-        out.push(T(x + cw - 18, ry, `${ok ? 'done' : r.status} ${r.endedAt ? ago(nowMs - r.endedAt) : ''}${r.endedAt && nowMs - r.endedAt >= 60000 ? ' ago' : ''}`, 't2', 11, 500, 'end'))
+        out.push(T(x + cw - 16, ry, `${ok ? 'done' : r.status} ${r.endedAt ? ago(nowMs - r.endedAt) : ''}${r.endedAt && nowMs - r.endedAt >= 60000 ? ' ago' : ''}`, 't2', 12, 500, 'end'))
         ry += 26
       })
     }
@@ -662,7 +664,10 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     drawWork(P, y, CW, h)
     y += h + GAP
   }
-  if (mode === 'work' || mode === 'top') return assemble()
+  if (mode === 'work' || mode === 'top') {
+    y -= GAP - 4
+    return assemble()
+  }
 
   // The painting on the wall as a museum label, then what Claude needs to remind you of and a line of the day.
   const drawMuseum = () => {
@@ -672,25 +677,30 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       out.push(card(P, y, CW, LH))
       out.push(`<rect x="${P + 16}" y="${y + 16}" width="2" height="${LH - 32}" rx="1" class="gfill"/>`)
       out.push(caps(P + 30, y + 27, 'On your wall'))
-      if (wall.room) out.push(caps(P + CW - 18, y + 27, cut(wall.room, Math.max(8, Math.floor((CW - 150) / 7.6))), 't2', 'end'))
+      if (wall.room) out.push(caps(P + CW - 16, y + 27, cut(wall.room, Math.max(8, Math.floor((CW - 150) / 7.6))), 't2', 'end'))
       out.push(T(P + 30, y + 49, cut(wall.title, Math.floor((CW - 50) / (16 * 0.47))), 't1 serif', 16, 400, 'start', 'font-style="italic"'))
-      out.push(T(P + 30, y + 65, cut([wall.artist, wall.year].filter(Boolean).join(' · '), Math.floor((CW - 50) / 6)), 't2', 11, 500))
+      out.push(T(P + 30, y + 65, cut([wall.artist, wall.year].filter(Boolean).join(' · '), Math.floor((CW - 50) / 6)), 't2', 12, 500))
       y += LH + GAP
     }
     const items = m?.reminders ?? []
     const shown = items.slice(0, 4)
     const itemChars = Math.max(16, Math.floor((CW - 60) / (13 * 0.5)))
     // Two lines at most; a word too long for the card (a file path) is cut rather than run past the edge.
-    const itemLines = shown.map(t => wrap(t, itemChars).slice(0, 2).map(line => cut(line, itemChars + 2)))
+    const itemLines = shown.map(t => {
+      const all = wrap(t, itemChars).map(line => cut(line, itemChars + 2))
+      const kept = all.slice(0, 2)
+      if (all.length > 2) kept[1] = `${cut(kept[1], itemChars - 1).replace(/[,·:\s…]+$/, '')}…`
+      return kept
+    })
     const [qText, qBy] = quoteFor(s?.today ?? toIso(new Date(nowMs - new Date(nowMs).getTimezoneOffset() * 60000)))
-    const qLines = wrap(`“${qText}”`, Math.max(18, Math.floor((CW - 36) / (15 * 0.46))))
+    const qLines = wrap(`“${qText}”`, Math.max(18, Math.floor((CW - 32) / (15 * 0.46))))
     const listH = shown.length ? itemLines.reduce((a, ls) => a + ls.length * 17 + 9, 0) + (items.length > 4 ? 18 : 0) : 26
     const FH = 50 + listH + 18 + qLines.length * 20 + 32
     out.push(card(P, y, CW, FH))
     out.push(title(P, y, 'For you today', items.length ? `${items.length} reminder${items.length === 1 ? '' : 's'}` : 'all clear', P + CW))
     let fy = y + 60
     if (!shown.length) {
-      out.push(T(P + 18, fy, 'Nothing waiting on you. Claude adds reminders here.', 't2', 12, 500))
+      out.push(T(P + 16, fy, 'Nothing waiting on you. Claude adds reminders here.', 't2', 12, 500))
       fy += 26
     }
     shown.forEach((_, i) => {
@@ -699,19 +709,19 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       fy += itemLines[i].length * 17 + 9
     })
     if (items.length > 4) {
-      out.push(T(P + 38, fy, `+${items.length - 4} more · /remind lists them`, 't2', 11, 500))
+      out.push(T(P + 38, fy, `+${items.length - 4} more · /remind lists them`, 't2', 12, 500))
       fy += 18
     }
-    out.push(`<line x1="${P + 18}" y1="${fy}" x2="${P + CW - 18}" y2="${fy}" class="sepl"/>`)
+    out.push(`<line x1="${P + 16}" y1="${fy}" x2="${P + CW - 16}" y2="${fy}" class="sepl"/>`)
     fy += 22
-    qLines.forEach((line, j) => out.push(T(P + 18, fy + 4 + j * 20, line, 't1 serif', 15, 400, 'start', 'font-style="italic"')))
-    out.push(T(P + 18, fy + 4 + qLines.length * 20 + 2, `— ${qBy}`, 't2', 11, 500))
+    qLines.forEach((line, j) => out.push(T(P + 16, fy + 4 + j * 20, line, 't1 serif', 15, 400, 'start', 'font-style="italic"')))
+    out.push(T(P + 16, fy + 4 + qLines.length * 20 + 2, `— ${qBy}`, 't2', 12, 500))
     y += FH + GAP
   }
 
   if (!s || Object.keys(s.days).length === 0) {
     out.push(card(P, y, CW, 70))
-    out.push(T(P + 18, y + 42, 'Reading your Claude Code logs…', 't2', 15, 500))
+    out.push(T(P + 16, y + 42, 'Reading your Claude Code logs…', 't2', 15, 500))
     y += 70 + GAP
     if (m) drawMuseum()
     if (mode === 'home') return assemble()
@@ -723,8 +733,8 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     const HH = 178
     out.push(card(P, y, CW, HH))
     out.push(caps(P + 20, y + 30, 'Total tokens'))
-    out.push(T(P + 18, y + 84, fmt(sum.all), 't1 serif', wide ? 58 : 50, 400, 'start', 'letter-spacing="-.5"'))
-    out.push(T(P + 20, y + 106, `since ${short(keys[0])} · incl. cache`, 't2', 11, 500))
+    out.push(T(P + 16, y + 84, fmt(sum.all), 't1 serif', wide ? 58 : 50, 400, 'start', 'letter-spacing="-.5"'))
+    out.push(T(P + 20, y + 106, `since ${short(keys[0])} · incl. cache`, 't2', 12, 500))
     // Sparkline of all tokens per day, last 30 days.
     const sx0 = P + CW * (wide ? 0.55 : 0.56)
     const sx1 = P + CW - 20
@@ -746,7 +756,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       ['Fable', fmt(sum.fable)],
       ['Output', fmt(sum.out)],
       ['Sessions', String(sum.sessions)],
-      ['Days', String(keys.length)],
+      ...(narrow ? [] : [['Days', String(keys.length)] as [string, string]]),
       ['Streak', `${current}d`],
     ]
     // Each column is as wide as its text needs (SVG text can't shrink itself), then the spare room is shared out.
@@ -764,14 +774,14 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       if (i > 0) out.push(`<line x1="${mx.toFixed(1)}" y1="${y + 130}" x2="${mx.toFixed(1)}" y2="${y + 162}" class="sepl"/>`)
       if (lead) {
         // A faint gold wash behind Fable: as wide as the text plus even padding, centered on the text.
-        const bw = Math.min(cw - 6, Math.max(textWidth(value, size), textWidth(label, 10)) + 28)
+        const bw = Math.min(cw - 6, Math.max(textWidth(value, size), textWidth(label, 12)) + 24)
         out.push(`<rect x="${(mid - bw / 2).toFixed(1)}" y="${y + 123}" width="${bw.toFixed(1)}" height="46" rx="12" class="pill"/>`)
       }
-      out.push(T(mid, y + 140, label, lead ? 'accent' : 't2', 10, lead ? 700 : 500, 'middle'))
+      out.push(T(mid, y + 140, label, lead ? 'accent' : 't2', 12, lead ? 700 : 500, 'middle'))
       out.push(T(mid, y + 160, value, lead ? 'accent' : 't1', size, 600, 'middle'))
       mx += cw
     })
-    out.push(`<line x1="${P + 18}" y1="${y + 118}" x2="${P + CW - 18}" y2="${y + 118}" class="sepl"/>`)
+    out.push(`<line x1="${P + 16}" y1="${y + 118}" x2="${P + CW - 16}" y2="${y + 118}" class="sepl"/>`)
     y += HH + GAP
     if (m) drawMuseum()
     if (mode === 'home') return assemble()
@@ -784,12 +794,12 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     const fableLim = l?.limits.find(x => x.kind.includes('fable')) ?? null
     const fableShare = sum.all > 0 ? (sum.fable / sum.all) * 100 : null
     const rings: { label: string; pct: number | null; sub: string; plain?: boolean }[] = [
-      { label: '5-hour', pct: five?.percentUsed ?? null, sub: five?.resetsAt ? `resets ${untilText(five.resetsAt, nowMs)}` : five ? 'limit' : 'after a reply' },
-      { label: 'Weekly', pct: week?.percentUsed ?? null, sub: week?.resetsAt ? `resets ${untilText(week.resetsAt, nowMs)}` : week ? 'limit' : 'after a reply' },
+      { label: '5-hour', pct: five?.percentUsed ?? null, sub: five?.resetsAt ? `${narrow ? 'in' : 'resets'} ${untilText(five.resetsAt, nowMs)}` : five ? 'limit' : narrow ? '—' : 'after a reply' },
+      { label: 'Weekly', pct: week?.percentUsed ?? null, sub: week?.resetsAt ? `${narrow ? 'in' : 'resets'} ${untilText(week.resetsAt, nowMs)}` : week ? 'limit' : narrow ? '—' : 'after a reply' },
       fableLim
         ? { label: 'Fable', pct: fableLim.percentUsed, sub: fableLim.resetsAt ? `resets ${untilText(fableLim.resetsAt, nowMs)}` : 'limit' }
-        : { label: 'Fable', pct: fableShare, sub: `${fmt(sum.fable)} · share`, plain: true },
-      { label: 'This chat', pct: l?.ctxPercent ?? null, sub: l?.ctxTokens != null ? `${fmt(l.ctxTokens)} tokens` : 'context' },
+        : { label: 'Fable', pct: fableShare, sub: narrow ? 'share' : `${fmt(sum.fable)} · share`, plain: true },
+      { label: 'This chat', pct: l?.ctxPercent ?? null, sub: l?.ctxTokens != null ? `${fmt(l.ctxTokens)}${narrow ? '' : ' tokens'}` : 'context' },
     ]
     const RH = 146
     out.push(card(P, y, CW, RH))
@@ -811,7 +821,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       out.push(T(cx, cy + r + 22, ring.label, 't1', 12, 600, 'middle'))
       // A sign as well as a colour (like the widget): ▲ from 70%, ‼ from 90%.
       const sign = color ? ((ring.pct ?? 0) >= 90 ? '‼ ' : '▲ ') : ''
-      out.push(T(cx, cy + r + 37, sign + cut(ring.sub, Math.floor((colW - 8) / 5.6) - sign.length), color ? ((ring.pct ?? 0) >= 90 ? 'alertt' : 'warnt') : 't2', 10, 500, 'middle'))
+      out.push(T(cx, cy + r + 37, sign + cut(ring.sub, Math.floor((colW - 8) / 6.6) - sign.length), color ? ((ring.pct ?? 0) >= 90 ? 'alertt' : 'warnt') : 't2', 12, 500, 'middle'))
     })
     y += RH + GAP
 
@@ -821,7 +831,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     const delta = today && avgOut7 > 0 ? Math.round(((today.out - avgOut7) / avgOut7) * 100) : null
     const todayCols: [string, string, string][] = [
       ['Today', today ? fmt(today.out) : '0', delta == null ? 'output' : `${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)}% vs avg`],
-      ['Fable today', fmt(today?.fa ?? 0), `${fmt(today?.fo ?? 0)} output`],
+      ...(narrow ? [] : [['Fable today', fmt(today?.fa ?? 0), `${fmt(today?.fo ?? 0)} output`] as [string, string, string]]),
       ['Sessions', String(today?.sessions ?? 0), today ? `${fmt(total(today))} all` : 'none yet'],
       ['Streak', `${current}d`, `best ${longest}d`],
     ]
@@ -829,34 +839,34 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     // values shrink only if they still don't fit, everything centered in its column.
     const vSize = wide ? 21 : 18
     const tws = fitColumns(todayCols.map(([label, value, sub]) => [
-      textWidth(value, vSize), textWidth(label, 11), textWidth(sub, 10),
+      textWidth(value, vSize), textWidth(label, 12), textWidth(sub, 12),
     ]), CW - 16, 14)
     let tx = P + 8
     todayCols.forEach(([label, value, sub], i) => {
       const tw = tws[i]
       const mid = tx + tw / 2
       if (i > 0) out.push(`<line x1="${tx.toFixed(1)}" y1="${y + 20}" x2="${tx.toFixed(1)}" y2="${y + TH - 20}" class="sepl"/>`)
-      out.push(T(mid, y + 27, label, 't2', 11, 600, 'middle'))
+      out.push(T(mid, y + 27, label, 't2', 12, 600, 'middle'))
       out.push(T(mid, y + 54, value, 't1', fitFont(value, tw - 12, vSize), 700, 'middle'))
-      out.push(T(mid, y + 72, cut(sub, Math.floor((tw - 8) / 5.4)), i === 0 && delta != null ? 'accent' : 't2', 10, 500, 'middle'))
+      out.push(T(mid, y + 72, cut(sub, Math.floor((tw - 8) / 6.6)), i === 0 && delta != null ? 'accent' : 't2', 12, 500, 'middle'))
       tx += tw
     })
     y += TH + GAP
 
     // Activity: a wide rectangle of weeks (up to a year), one rounded square per day.
     const gap = 3
-    const labelW = 28
-    const avail = CW - 36 - labelW
+    const labelW = 34
+    const avail = CW - 32 - labelW
     const weeks = Math.min(53, Math.max(8, Math.floor((avail + gap) / (12 + gap))))
     const cell = Math.min(20, (avail - (weeks - 1) * gap) / weeks)
     const lastWeekStart = addDays(s.today, -toDate(s.today).getUTCDay())
     const gridStart = addDays(lastWeekStart, -(weeks - 1) * 7)
-    const gx = P + 18 + labelW + Math.max(0, avail - (weeks * (cell + gap) - gap))
+    const gx = P + 16 + labelW + Math.max(0, avail - (weeks * (cell + gap) - gap))
     const gy = y + 68
     const gridH = 7 * (cell + gap) - gap
     const AH = 68 + gridH + 48
     out.push(card(P, y, CW, AH))
-    out.push(title(P, y, 'Activity', `last ${weeks} weeks · output tokens`, P + CW))
+    out.push(title(P, y, 'Activity', CW >= 470 ? `last ${weeks} weeks · output tokens` : `${weeks} weeks · output`, P + CW))
     let lastM = -1
     let lastLabelX = -99
     for (let w = 0; w < weeks; w++) {
@@ -865,7 +875,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       // Skip a label for a sliver of a month at the left edge (it would crowd the next one).
       const sliver = w === 0 && toDate(addDays(gridStart, 14)).getUTCMonth() !== m
       if (m !== lastM && mx - lastLabelX >= 30 && !sliver) {
-        out.push(T(mx, gy - 9, MONTHS[m], 't2', 10, 500))
+        out.push(T(mx, gy - 9, MONTHS[m], 't2', 12, 500))
         lastLabelX = mx
       }
       lastM = m
@@ -881,25 +891,25 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       }
     }
     ;[['Mon', 1], ['Wed', 3], ['Fri', 5]].forEach(([label, rr]) =>
-      out.push(T(P + 18, gy + (rr as number) * (cell + gap) + cell * 0.75, label as string, 't2', 10, 500)),
+      out.push(T(P + 16, gy + (rr as number) * (cell + gap) + cell * 0.75, label as string, 't2', 12, 500)),
     )
     const ly = gy + gridH + 30
-    out.push(T(P + 18, ly, cut(`Busiest ${short(best)} · ${fmt(s.days[best].out)} output`, Math.max(8, Math.floor((CW - 36 - 160) / 6))), 't2', 11, 500))
-    const lx = P + CW - 18
-    out.push(T(lx, ly, 'More', 't2', 10, 500, 'end'))
+    out.push(T(P + 16, ly, (() => { const room = Math.floor((CW - 32 - 164) / 6.8); const full = `Busiest ${short(best)} · ${fmt(s.days[best].out)} output`; const mid = `Busiest ${short(best)} · ${fmt(s.days[best].out)}`; return full.length <= room ? full : mid.length <= room ? mid : `Busiest ${short(best)}` })(), 't2', 12, 500))
+    const lx = P + CW - 16
+    out.push(T(lx, ly, 'More', 't2', 12, 500, 'end'))
     ;[4, 3, 2, 1, 0].forEach((lv, i) => {
-      const bx = lx - 46 - i * 15
+      const bx = lx - 54 - i * 15
       out.push(`<rect class="${lv ? 'heat' : 'empty'}" x="${bx}" y="${ly - 10}" width="12" height="12" rx="3"${lv ? ` fill-opacity="${[0, 0.28, 0.5, 0.75, 1][lv]}"` : ''}/>`)
     })
-    out.push(T(lx - 46 - 4 * 15 - 6, ly, 'Less', 't2', 10, 500, 'end'))
+    out.push(T(lx - 54 - 4 * 15 - 8, ly, 'Less', 't2', 12, 500, 'end'))
     y += AH + GAP
 
     // Last 14 days: rounded bars, today solid.
     const BH = 190
     out.push(card(P, y, CW, BH))
     out.push(title(P, y, 'Last 14 days', 'output tokens', P + CW))
-    const bx0 = P + 18
-    const bw0 = CW - 36
+    const bx0 = P + 16
+    const bw0 = CW - 32
     const by0 = y + 58
     const by1 = y + BH - 36
     const days14 = Array.from({ length: 14 }, (_, i) => addDays(s.today, i - 13))
@@ -911,7 +921,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       const gyy = by1 - (by1 - by0) * f
       out.push(`<line x1="${bx0}" y1="${gyy.toFixed(1)}" x2="${bx0 + bw0}" y2="${gyy.toFixed(1)}" class="sepl" stroke-dasharray="3 4"/>`)
     })
-    out.push(T(bx0 + bw0, by0 - 6, fmt(vmax), 't2', 10, 500, 'end'))
+    out.push(T(bx0 + bw0, by0 - 6, fmt(vmax), 't2', 12, 500, 'end'))
     days14.forEach((k, i) => {
       const v = vals[i]
       const h = Math.max(v > 0 ? 4 : 2, ((by1 - by0) * v) / vmax)
@@ -920,7 +930,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       out.push(
         `<rect class="${v > 0 ? 'bar' : 'empty'}" x="${x.toFixed(1)}" y="${(by1 - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="${Math.min(6, bw / 2).toFixed(1)}"${v > 0 && !isToday ? ' fill-opacity=".45"' : ''}><title>${esc(`${short(k)}: ${fmt(v)} output`)}</title></rect>`,
       )
-      if (i % 2 === 1 || isToday) out.push(T(x + bw / 2, by1 + 18, String(toDate(k).getUTCDate()), isToday ? 'accent' : 't2', 10, isToday ? 700 : 500, 'middle'))
+      if (i % 2 === 1 || isToday) out.push(T(x + bw / 2, by1 + 18, String(toDate(k).getUTCDate()), isToday ? 'accent' : 't2', 12, isToday ? 700 : 500, 'middle'))
     })
     y += BH + GAP
 
@@ -932,13 +942,13 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
       out.push(card(x, my, mw, h))
       out.push(title(x, my, 'Models', 'by output', x + mw))
       const mmax = Math.max(1, ...models.map(m => m[1]))
-      if (models.length === 0) out.push(T(x + 18, my + 66, 'No model data yet', 't2', 13, 500))
+      if (models.length === 0) out.push(T(x + 16, my + 66, 'No model data yet', 't2', 13, 500))
       models.forEach(([name, v], i) => {
         const ry = my + 64 + i * 38
-        out.push(T(x + 18, ry, cut(name.replace(/^claude-/, ''), Math.floor((mw - 90) / 7)), 't1', 13, 600))
-        out.push(T(x + mw - 18, ry, fmt(v), 't2', 12, 500, 'end'))
-        out.push(`<rect x="${x + 18}" y="${ry + 8}" width="${(mw - 36).toFixed(1)}" height="6" rx="3" class="mtrack"/>`)
-        out.push(`<rect x="${x + 18}" y="${ry + 8}" width="${Math.max(6, ((mw - 36) * v) / mmax).toFixed(1)}" height="6" rx="3" class="mfill"${i ? ` fill-opacity="${1 - i * 0.2}"` : ''}/>`)
+        out.push(T(x + 16, ry, cut(name.replace(/^claude-/, ''), Math.floor((mw - 90) / 7)), 't1', 13, 600))
+        out.push(T(x + mw - 16, ry, fmt(v), 't2', 12, 500, 'end'))
+        out.push(`<rect x="${x + 16}" y="${ry + 8}" width="${(mw - 32).toFixed(1)}" height="6" rx="3" class="mtrack"/>`)
+        out.push(`<rect x="${x + 16}" y="${ry + 8}" width="${Math.max(6, ((mw - 32) * v) / mmax).toFixed(1)}" height="6" rx="3" class="mfill"${i ? ` fill-opacity="${1 - i * 0.2}"` : ''}/>`)
       })
     }
     if (busy) {
@@ -964,12 +974,12 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
   const tipLines = tips.map(t => wrap(t, maxChars))
   const RCH = 52 + tipLines.reduce((a, ls) => a + ls.length * 18 + 24, 0)
   out.push(card(P, y, CW, RCH))
-  out.push(T(P + 18, y + 33, 'Recommendations', 't1 serif', 19, 400))
+  out.push(T(P + 16, y + 33, 'Recommendations', 't1 serif', 19, 400))
   let ty = y + 58
   tips.forEach((t, i) => {
     const isGood = /healthy/i.test(t)
     const color = /at (9\d|1\d\d)%/.test(t) ? RED : /at [78]\d%|full|2x|agents running/.test(t) ? ORANGE : isGood ? GREEN : null
-    if (i > 0) out.push(`<line x1="${P + 56}" y1="${ty - 14}" x2="${P + CW - 18}" y2="${ty - 14}" class="sepl"/>`)
+    if (i > 0) out.push(`<line x1="${P + 56}" y1="${ty - 14}" x2="${P + CW - 16}" y2="${ty - 14}" class="sepl"/>`)
     // Outlined badges, like a numbered label in a gallery: gold for notes, warm colours for warnings.
     out.push(`<circle cx="${P + 32}" cy="${ty + 2}" r="11" fill="none" stroke="${color ?? GOLD}" stroke-width="1.2"/>`)
     out.push(`<text x="${P + 32}" y="${ty + 6.5}" ${color ? `fill="${color}" class="serif"` : 'class="accent serif"'} font-size="12" font-weight="700" text-anchor="middle">${isGood ? '✓' : color ? '!' : 'i'}</text>`)
@@ -979,7 +989,7 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
   y += RCH + GAP
 
   if (mode === 'full') {
-    out.push(T(W / 2, y + 6, `Updated ${timeText(nowMs)} · /dashboard reopens this`, 't2', 11, 500, 'middle'))
+    out.push(T(W / 2, y + 6, `Updated ${timeText(nowMs)} · /dashboard reopens this`, 't2', 12, 500, 'middle'))
     y += 22
   }
 
@@ -1013,8 +1023,8 @@ export const dailyFacts = (s: Stats | null, l: Live | null, w: Work | null, m: M
   const week = l?.limits.find(x => x.kind === 'seven_day')
   const outlook = week ? weekOutlook(week.percentUsed, week.resetsAt, nowMs) : null
   const usage = [
-    s ? `Today ${fmt(today?.out ?? 0)} output, yesterday ${fmt(yday?.out ?? 0)}.` : 'Reading your usage…',
-    week ? `Week ${Math.round(week.percentUsed)}%${week.resetsAt ? `, resets in ${untilText(week.resetsAt, nowMs)}` : ''}${outlook ? `: ${outlook}` : ''}.` : '',
+    s ? `Today ${fmt(today?.out ?? 0)} out, yesterday ${fmt(yday?.out ?? 0)}.` : 'Reading your usage…',
+    week ? `Week ${Math.round(week.percentUsed)}%${week.resetsAt ? `, resets ${untilText(week.resetsAt, nowMs)}` : ''}${outlook ? `, ${outlook}` : ''}.` : '',
   ].filter(Boolean).join(' ')
   // Chats: this one and every other open chat on the Mac; idle ones have finished their turn.
   const others = l?.others ?? []
@@ -1044,10 +1054,10 @@ export const dailySvg = (f: DailyFacts, width: number): { svg: string; width: nu
   const P = 2
   const CW = W - 2 * P
   const LW = W < 460 ? 66 : 80
-  const x0 = P + 18
+  const x0 = P + 16
   const tx = x0 + LW
   // Average SF character at 12.5 px is about 0.55 em; a little under-filling beats clipping.
-  const chars = Math.max(18, Math.floor((CW - 18 - LW - 18) / (12.5 * 0.56)))
+  const chars = Math.max(18, Math.floor((CW - 16 - LW - 18) / (12.5 * 0.56)))
   // Up to `max` lines; if text was left over, the last line ends with "…" so nothing vanishes silently.
   const fit = (text: string, max: number): string[] => {
     const all = wrap(text, chars).map(line => cut(line, chars + 1))
@@ -1058,10 +1068,11 @@ export const dailySvg = (f: DailyFacts, width: number): { svg: string; width: nu
   const out: string[] = []
   const T = (x: number, ty: number, str: string, cls: string, size: number, weight = 400, anchor = 'start', extra = '') =>
     `<text x="${x.toFixed(1)}" y="${ty.toFixed(1)}" class="${cls}" font-size="${size}" font-weight="${weight}" text-anchor="${anchor}" ${extra}>${esc(str)}</text>`
-  const caps = (x: number, ty: number, str: string, cls = 't2', anchor = 'start') => T(x, ty, str.toUpperCase(), cls, 9.5, 600, anchor, 'letter-spacing="1.3"')
+  const caps = (x: number, ty: number, str: string, cls = 't2', anchor = 'start') => T(x, ty, str.toUpperCase(), cls, 12, 600, anchor, 'letter-spacing="1.3"')
   let y = P + 28
-  out.push(caps(x0, y, cut(`Daily update · ${f.date}`, Math.floor((CW - 110) / 7.2))))
-  out.push(caps(P + CW - 18, y, f.time, 'accent', 'end'))
+  const dateShort = f.date.replace(/\b([A-Z][a-z]{2})[a-z]+/g, '$1')
+  out.push(caps(x0, y, cut(`Daily update · ${W < 520 ? dateShort : f.date}`, Math.floor((CW - 110) / 8.6))))
+  out.push(caps(P + CW - 16, y, f.time, 'accent', 'end'))
   y += 26
   const rows: [string, string[]][] = [
     ['Usage', fit(f.usage, 2)],
@@ -1071,23 +1082,23 @@ export const dailySvg = (f: DailyFacts, width: number): { svg: string; width: nu
   ]
   for (const [label, lines] of rows) {
     out.push(caps(x0, y - 1, label))
-    lines.forEach((line, j) => out.push(T(tx, y + j * 18, line, line.startsWith('+') ? 't2' : 't1', line.startsWith('+') ? 11 : 12.5, 500)))
+    lines.forEach((line, j) => out.push(T(tx, y + j * 18, line, line.startsWith('+') ? 't2' : 't1', line.startsWith('+') ? 12 : 12.5, 500)))
     y += lines.length * 18 + 9
   }
   if (f.wall) {
     out.push(caps(x0, y - 1, 'Wall'))
-    out.push(T(tx, y, cut(f.wall, Math.floor((CW - 18 - LW - 18) / (14 * 0.44))), 't1 serif', 14, 400, 'start', 'font-style="italic"'))
+    out.push(T(tx, y, cut(f.wall, Math.floor((CW - 16 - LW - 18) / (14 * 0.44))), 't1 serif', 14, 400, 'start', 'font-style="italic"'))
     y += 27
   }
-  out.push(`<line x1="${x0}" y1="${y - 6}" x2="${P + CW - 18}" y2="${y - 6}" class="sepl"/>`)
+  out.push(`<line x1="${x0}" y1="${y - 6}" x2="${P + CW - 16}" y2="${y - 6}" class="sepl"/>`)
   y += 14
-  const q = wrap(`“${f.quote[0]}” — ${f.quote[1]}`, Math.floor((CW - 36) / (14 * 0.46)))
+  const q = wrap(`“${f.quote[0]}” — ${f.quote[1]}`, Math.floor((CW - 32) / (14 * 0.46)))
   q.forEach((line, j) => out.push(T(x0, y + j * 19, line, 't1 serif', 14, 400, 'start', 'font-style="italic"')))
   y += (q.length - 1) * 19 + 18
   const H = Math.round(y + P)
   const glass =
     `<rect x="${P + 0.5}" y="${P + 0.5}" width="${CW - 1}" height="${H - 2 * P - 1}" rx="18" class="card"/>` +
-    `<path d="M${P + 18} ${P + 1.5}H${P + CW - 18}" class="hl"/>`
+    `<path d="M${P + 16} ${P + 1.5}H${P + CW - 16}" class="hl"/>`
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><style>${STYLE}</style>${glass}${out.join('')}</svg>`
   return { svg, width: W, height: H }
 }
