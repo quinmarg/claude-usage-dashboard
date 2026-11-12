@@ -61,3 +61,7 @@ Where the dashboard was placed in each chat is logged to `~/.claude/usage-grid.l
 - Titles never collide with their small labels; footers and legends never overlap; every heatmap cell is the same size, with equal padding on both sides.
 - In the narrow side pane (under ~420 px) some rows use short forms instead of cut text: the hero drops "Days", the Today row drops "Fable today" (both stay in the wide view), ring captions say "in 4h", the Activity label says "16 weeks · output".
 - Checked at 340, 380, 560 and 760 px in light and dark; a test checks the 12 px minimum and equal cells at every width.
+
+## Limits: newest reading wins (0.12.5)
+- Each chat learns the plan limits only when it gets a reply. Every reading now carries `measuredAt`; a chat writes `~/.claude/usage-grid/limits.json` only when its reading is newer than the file's, and shows the file's numbers when they are newer than its own. Readings are taken at every reply and every limit change the engine reports, and other chats' newer numbers show within about 5 seconds. The file only gained a field (`measuredAt`), so the desktop widget and the notch app keep working and now see the newest numbers.
+- **Fable ring:** Claude Code gives mods only the 5-hour and overall weekly windows, not a Fable weekly limit. So the ring shows Fable's **share of all tokens** (labelled so). If Claude Code starts reporting a Fable window (e.g. `seven_day_fable`), the ring becomes **Fable weekly** with its reset time and the 70%/90% warnings, with no update needed.

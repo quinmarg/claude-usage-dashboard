@@ -1,5 +1,10 @@
 # Changelog (usage-grid)
 
+## 0.12.5 (2026-11-11)
+- Fix: limit rings lagged and disagreed (file 82% vs card 89%) because every chat rewrote its own, possibly hours-old, reading once a minute. Now readings carry `measuredAt` and the newest wins (write only if newer; show the file if newer). Readings are taken on every reply (`turn.complete`) and every `session.measure` limit change; others' newer numbers are picked up every 5 s. limits.json only gains `measuredAt`.
+- Fable ring: a real "Fable weekly" ring (reset time, 70/90% warnings) whenever Claude Code reports a Fable window; otherwise it says "share of all". Claude Code currently reports only `five_hour` and `seven_day` to mods.
+- Tests: newest-wins merge, old files without measuredAt, Fable weekly vs share.
+
 ## 0.12.4 (2026-11-11)
 - Layout audit of every card at 340/380/560/760 px, light and dark: one spacing scale (16 px inside cards, 12 px between), 12 px minimum text everywhere, no double gap between the live top and the body, short forms in the narrow side pane instead of cut text (hero without "Days", Today without "Fable today", ring captions "in 4h", Activity "16 weeks · output", "Busiest" without the number when tight), daily update with a short date when narrow, reminders that run past two lines end with "…".
 - Test: no text under 12 px, equal heatmap cells and the Activity label fitting beside its title, at every width.

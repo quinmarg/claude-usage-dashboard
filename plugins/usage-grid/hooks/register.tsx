@@ -304,6 +304,9 @@ async function refreshOthers($: any): Promise<void> {
     others.sort((a, b) => a.sessionId.localeCompare(b.sessionId))
     const seen = (list: ChatWork[]) => JSON.stringify(list.map(({ updatedAt, ...rest }) => rest))
     await update($, live, old => (old && seen(old.others) !== seen(others) ? { ...old, others } : old))
+    // Another chat shared newer limits: show them within a few seconds.
+    const best = newestLimits(seenLimits(), await readShared($))
+    await update($, live, old => (old && JSON.stringify(old.limits) !== JSON.stringify(best.limits) ? { ...old, limits: best.limits } : old))
   } catch {
     // Leave the last reading.
   }
@@ -352,17 +355,45 @@ async function checkWhere($: any): Promise<void> {
   }
 }
 
-let lastLimits = { text: '', at: 0 }
-/** Shares the plan limits (account-wide) for the desktop widgets: ~/.claude/usage-grid/limits.json. On change, or once a minute. */
-async function shareLimits($: any, limits: Limit[], sid: string): Promise<void> {
+// Plan limits are account-wide, but each chat only learns them when IT gets a reply. Before 0.12.5
+// every chat rewrote its own (maybe hours-old) reading once a minute, so a quiet chat overwrote newer
+// numbers. Now each reading carries `measuredAt` (when this chat's reply brought it) and the newest wins:
+// a chat writes limits.json only if its reading is newer than the file's, and shows the file's
+// numbers when they are newer than its own. Fields are only added: {limits, sessionId, updatedAt, measuredAt}.
+export type SharedLimits = { limits: Limit[]; sessionId?: string; updatedAt?: number; measuredAt?: number }
+/** When a shared reading was measured; files from before 0.12.5 have no measuredAt and count as oldest. */
+export const measuredAtOf = (f: SharedLimits | null): number => (f && typeof f.measuredAt === 'number' ? f.measuredAt : 0)
+/** The newer of this chat's reading and the shared file. Ties keep this chat's. */
+export const newestLimits = (own: { at: number; limits: Limit[] }, file: SharedLimits | null): { at: number; limits: Limit[]; isFile: boolean } =>
+  file && file.limits?.length && measuredAtOf(file) > own.at
+    ? // The file's windows win; a window it lacks (a partial write) keeps this chat's reading.
+      { at: measuredAtOf(file), limits: [...file.limits, ...own.limits.filter(o => !file.limits.some(f => f.kind === o.kind))], isFile: true }
+    : { ...own, isFile: false }
+/** Should this chat write its reading? Only a real reading that is newer than the file's. */
+export const shouldShare = (own: { at: number; limits: Limit[] }, file: SharedLimits | null): boolean =>
+  own.limits.length > 0 && own.at > 0 && own.at > measuredAtOf(file)
+let seen = { at: 0, limits: [] as Limit[], text: '' }
+const seenLimits = () => seen
+const limitsPath = async ($: any): Promise<string> => `${(await workDir($)).replace(/\/work$/, '')}/limits.json`
+async function readShared($: any): Promise<SharedLimits | null> {
   try {
-    if (!limits.length) return
-    const text = JSON.stringify(limits)
-    const now = Date.now()
-    if (text === lastLimits.text && now - lastLimits.at < 60000) return
-    lastLimits = { text, at: now }
-    const dir = (await workDir($)).replace(/\/work$/, '')
-    await $.fs.write(`${dir}/limits.json`, JSON.stringify({ limits, sessionId: sid, updatedAt: now }))
+    return JSON.parse(await $.fs.read(await limitsPath($))) as SharedLimits
+  } catch {
+    return null
+  }
+}
+/** Notes a fresh reading from this chat (a reply just arrived, or the engine measured a change). */
+function noteReading(limits: Limit[], at: number, isFresh: boolean): void {
+  const text = JSON.stringify(limits)
+  if (!limits.length) return
+  if (isFresh || text !== seen.text) seen = { at, limits, text }
+}
+/** Shares the plan limits (account-wide) for the desktop widgets: ~/.claude/usage-grid/limits.json. On change, or once a minute. */
+async function shareLimits($: any, sid: string): Promise<void> {
+  try {
+    const file = await readShared($)
+    if (!shouldShare(seen, file)) return
+    await $.fs.write(await limitsPath($), JSON.stringify({ limits: seen.limits, sessionId: sid, updatedAt: Date.now(), measuredAt: seen.at }))
   } catch {
     // Sharing is best effort.
   }
@@ -392,7 +423,10 @@ async function refreshLive($: Engine): Promise<void> {
       title,
       others: [],
     }
-    void shareLimits($, next.limits, sid)
+    noteReading(next.limits, now, false)
+    void shareLimits($, sid)
+    // Show whichever is newer: this chat's reading or the one another chat shared.
+    next.limits = newestLimits(seen, await readShared($)).limits
     // Only write when something on screen changes, so the pane redraws no more than needed.
     await update($, live, old => {
       const merged = { ...next, others: old?.others ?? [] }
@@ -791,14 +825,16 @@ export const dashboardSvg = (s: Stats | null, l: Live | null, width: number, w: 
     const five = lim('five_hour')
     const week = lim('seven_day')
     // Fable: its own plan limit when the engine reports one, else its share of all tokens.
-    const fableLim = l?.limits.find(x => x.kind.includes('fable')) ?? null
+    // A Fable weekly window only if Claude Code reports one (e.g. seven_day_fable); today it reports
+    // just five_hour and seven_day to mods, so the ring shows Fable's share of all tokens, labelled so.
+    const fableLim = l?.limits.find(x => /fable/i.test(x.kind)) ?? null
     const fableShare = sum.all > 0 ? (sum.fable / sum.all) * 100 : null
     const rings: { label: string; pct: number | null; sub: string; plain?: boolean }[] = [
       { label: '5-hour', pct: five?.percentUsed ?? null, sub: five?.resetsAt ? `${narrow ? 'in' : 'resets'} ${untilText(five.resetsAt, nowMs)}` : five ? 'limit' : narrow ? '—' : 'after a reply' },
       { label: 'Weekly', pct: week?.percentUsed ?? null, sub: week?.resetsAt ? `${narrow ? 'in' : 'resets'} ${untilText(week.resetsAt, nowMs)}` : week ? 'limit' : narrow ? '—' : 'after a reply' },
       fableLim
-        ? { label: 'Fable', pct: fableLim.percentUsed, sub: fableLim.resetsAt ? `resets ${untilText(fableLim.resetsAt, nowMs)}` : 'limit' }
-        : { label: 'Fable', pct: fableShare, sub: narrow ? 'share' : `${fmt(sum.fable)} · share`, plain: true },
+        ? { label: narrow ? 'Fable wk' : 'Fable weekly', pct: fableLim.percentUsed, sub: fableLim.resetsAt ? `${narrow ? 'in' : 'resets'} ${untilText(fableLim.resetsAt, nowMs)}` : 'limit' }
+        : { label: 'Fable', pct: fableShare, sub: narrow ? 'share' : `share of all · ${fmt(sum.fable)}`, plain: true },
       { label: 'This chat', pct: l?.ctxPercent ?? null, sub: l?.ctxTokens != null ? `${fmt(l.ctxTokens)}${narrow ? '' : ' tokens'}` : 'context' },
     ]
     const RH = 146
@@ -1536,6 +1572,17 @@ export const register: Register = on => {
     return started
   })
 
+  // The engine measured a limit change (a window moved a point): share it and redraw at once.
+  on('session.measure', async ($, e, next) => {
+    const r = await next(e)
+    if ((e as any).changed?.includes('rateLimits') && (e as any).rateLimits?.length) {
+      noteReading((e as any).rateLimits.map((x: any) => ({ kind: x.kind, percentUsed: x.percentUsed, resetsAt: x.resetsAt ?? null })), Date.now(), true)
+      void shareLimits($, await $.session.id())
+      void refreshLive($)
+    }
+    return r
+  })
+
   // A chat that ends publishes itself idle, so others stop counting it at once.
   on('session.end', async ($, e, next) => {
     await update($, work, wk => ({ main: { ...wk.main, busy: false }, agents: wk.agents.map(r => (ACTIVE.has(r.status) ? { ...r, status: 'killed', endedAt: Date.now() } : r)) }))
@@ -1635,6 +1682,15 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
     if (e.agentId === undefined) {
+      // A reply just arrived: this chat's limit reading is fresh now, even if the numbers didn't move.
+      try {
+        const [u, sid] = await Promise.all([$.session.usage(), $.session.id()])
+        noteReading(u.rateLimits.map((r: any) => ({ kind: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt ?? null })), Date.now(), true)
+        void shareLimits($, sid)
+      } catch {
+        // the next tick tries again
+      }
+      void refreshLive($)
       void checkWhere($)
       $.clock.after(1500, () => void checkWhere($))
     }

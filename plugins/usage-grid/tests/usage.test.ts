@@ -385,3 +385,39 @@ test('layout rules hold at every width: no text under 12 px, equal heatmap cells
     expect(label.length * 8.6 + 'Activity'.length * 9.6 + 16).toBeLessThan(width - 32 - 32)
   }
 })
+
+import { measuredAtOf, newestLimits, shouldShare } from '../hooks/register'
+
+test('shared limits: the newest reading wins, an older chat never overwrites it', () => {
+  const oldWeek = [{ kind: 'seven_day', percentUsed: 82, resetsAt: null }]
+  const newWeek = [{ kind: 'seven_day', percentUsed: 89, resetsAt: null }]
+  const file = { limits: newWeek, sessionId: 'b', updatedAt: 2000, measuredAt: 2000 }
+  // A quiet chat whose reading is older: shows the file's newer numbers and does not write.
+  expect(newestLimits({ at: 1000, limits: oldWeek }, file)).toEqual({ at: 2000, limits: newWeek, isFile: true })
+  expect(shouldShare({ at: 1000, limits: oldWeek }, file)).toBe(false)
+  // A chat with a newer reading: keeps its own and writes it.
+  expect(newestLimits({ at: 3000, limits: oldWeek }, file).isFile).toBe(false)
+  expect(shouldShare({ at: 3000, limits: oldWeek }, file)).toBe(true)
+  // A file from before 0.12.5 (no measuredAt) counts as oldest; no reading yet: nothing to share.
+  expect(measuredAtOf({ limits: oldWeek, updatedAt: 9e12 })).toBe(0)
+  expect(shouldShare({ at: 1, limits: newWeek }, { limits: oldWeek, updatedAt: 9e12 })).toBe(true)
+  expect(shouldShare({ at: 0, limits: [] }, null)).toBe(false)
+  expect(newestLimits({ at: 0, limits: [] }, null)).toEqual({ at: 0, limits: [], isFile: false })
+  // A newer file with only the weekly window keeps this chat's 5-hour reading.
+  const five = { kind: 'five_hour', percentUsed: 44, resetsAt: null }
+  expect(newestLimits({ at: 1000, limits: [five, ...oldWeek] }, file).limits).toEqual([...newWeek, five])
+})
+
+test('Fable ring: a real Fable weekly window when reported, else an honest share', () => {
+  const withFable = { ...live, limits: [{ kind: 'seven_day', percentUsed: 89, resetsAt: null }, { kind: 'seven_day_fable', percentUsed: 74, resetsAt: new Date(live.now + 12 * 36e5).toISOString() }] }
+  const wideSvg = dashboardSvg(stats, withFable, 760, EMPTY_WORK, 'body', null).svg
+  expect(wideSvg.includes('Fable weekly')).toBe(true)
+  expect(wideSvg.includes('74%')).toBe(true)
+  expect(wideSvg.includes('▲ resets')).toBe(true)
+  const narrowSvg = dashboardSvg(stats, withFable, 340, EMPTY_WORK, 'body', null).svg
+  expect(narrowSvg.includes('Fable wk')).toBe(true)
+  const noFable = dashboardSvg(stats, { ...live, limits: [{ kind: 'seven_day', percentUsed: 89, resetsAt: null }] }, 760, EMPTY_WORK, 'body', null).svg
+  expect(noFable.includes('Fable weekly')).toBe(false)
+  expect(noFable.includes('share of all')).toBe(true)
+  expect(dashboardSvg(stats, live, 340, EMPTY_WORK, 'body', null).svg.includes('>share<')).toBe(true)
+})
